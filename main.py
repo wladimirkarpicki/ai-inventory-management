@@ -1,7 +1,6 @@
 from database import connect_to_db
 from inventory import (
     show_products,
-    show_brands,
     search_product,
     add_product,
     update_product,
@@ -19,12 +18,11 @@ def main():
 
             print("========== Inventory Management ==========")
             print("1. View all products")
-            print("2. Show brands")
-            print("3. Search product")
-            print("4. Add product")
-            print("5. Update product")
-            print("6. Delete product")
-            print("7. Exit")
+            print("2. Search product")
+            print("3. Add product")
+            print("4. Update product")
+            print("5. Delete product")
+            print("6. Exit")
 
             choice = input("\nChoose an option: ").strip()
 
@@ -32,21 +30,18 @@ def main():
                 show_products(cur)
 
             elif choice == "2":
-                show_brands(cur)
-
-            elif choice == "3":
                 search_product(cur)
 
-            elif choice == "4":
+            elif choice == "3":
                 add_product(cur, conn)
 
-            elif choice == "5":
+            elif choice == "4":
                 update_product(cur, conn)
 
-            elif choice == "6":
+            elif choice == "5":
                 delete_product(cur, conn)
 
-            elif choice == "7":
+            elif choice == "6":
                 print("\nGoodbye!")
                 break
 
