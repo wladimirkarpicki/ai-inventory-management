@@ -204,3 +204,184 @@ def add_product(cur, conn):
         f"\n✅ Product added successfully!"
         f"\nNew product ID: {product_id}\n"
     )
+
+
+def select_product(cur, brand_id):
+    """
+    Display products for selected brand and return product ID.
+    """
+
+    cur.execute("""
+        SELECT
+            id,
+            name,
+            price,
+            quantity
+        FROM products
+        WHERE brand_id = %s
+        ORDER BY id
+    """, (brand_id,))
+
+
+    products = cur.fetchall()
+
+
+    if not products:
+        print(
+            "\n❌ No products found for this brand.\n"
+        )
+        return None
+
+
+    print("\n========== Available Products ==========")
+    print(
+        f"{'ID':<5}"
+        f"{'Product':<25}"
+        f"{'Price':<12}"
+        f"{'Qty'}"
+    )
+    print("-" * 50)
+
+
+    for product in products:
+        print(
+            f"{product[0]:<5}"
+            f"{product[1]:<25}"
+            f"${product[2]:<11.2f}"
+            f"{product[3]}"
+        )
+
+
+    print()
+
+
+    choice = input(
+        "Choose product ID: "
+    ).strip()
+
+
+    if not choice.isdigit():
+        print(
+            "\n❌ Invalid product selection.\n"
+        )
+        return None
+
+
+    product_id = int(choice)
+
+
+    for product in products:
+        if product[0] == product_id:
+            return product_id
+
+
+    print(
+        "\n❌ Product not found.\n"
+    )
+
+    return None
+
+
+def update_product(cur, conn):
+    """
+    Update product price and quantity.
+    """
+
+    print("\n========== Update Product ==========")
+
+
+    brand_id = select_brand(cur)
+
+    if brand_id is None:
+        return
+
+
+    product_id = select_product(cur, brand_id)
+
+    if product_id is None:
+        return
+
+
+    cur.execute("""
+        SELECT
+            name,
+            price,
+            quantity
+        FROM products
+        WHERE id = %s
+    """, (product_id,))
+
+
+    product = cur.fetchone()
+
+
+    print("\nCurrent product:")
+    print(
+        f"Product: {product[0]}"
+    )
+    print(
+        f"Price: {product[1]:.2f}"
+    )
+    print(
+        f"Quantity: {product[2]}"
+    )
+
+
+    new_price = input(
+        "\nNew price (Enter to keep current): "
+    ).strip()
+
+
+    new_quantity = input(
+        "New quantity (Enter to keep current): "
+    ).strip()
+
+
+    if new_price == "":
+        new_price = product[1]
+
+    else:
+        try:
+            new_price = float(new_price)
+
+        except ValueError:
+            print(
+                "\n❌ Price must be a number.\n"
+            )
+            return
+
+
+    if new_quantity == "":
+        new_quantity = product[2]
+
+    else:
+        try:
+            new_quantity = int(new_quantity)
+
+        except ValueError:
+            print(
+                "\n❌ Quantity must be an integer.\n"
+            )
+            return
+
+
+    cur.execute("""
+        UPDATE products
+        SET
+            price = %s,
+            quantity = %s
+        WHERE id = %s
+    """,
+    (
+        new_price,
+        new_quantity,
+        product_id
+    ))
+
+
+    conn.commit()
+
+
+    print(
+        "\n✅ Product updated successfully.\n"
+    )

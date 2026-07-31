@@ -1,5 +1,10 @@
 from database import connect_to_db
-from inventory import show_products, search_product, add_product
+from inventory import (
+    show_products,
+    search_product,
+    add_product,
+    update_product
+)
 
 
 def main():
@@ -30,7 +35,7 @@ def main():
                 add_product(cur, conn)
 
             elif choice == "4":
-                print("Update product - Coming soon.\n")
+                update_product(cur, conn)
 
             elif choice == "5":
                 print("Delete product - Coming soon.\n")
