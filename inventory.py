@@ -79,3 +79,128 @@ def search_product(cur):
         )
 
     print()
+
+
+def select_brand(cur):
+    """
+    Display available brands and return selected brand ID.
+    """
+
+    cur.execute("""
+        SELECT
+            id,
+            name
+        FROM brands
+        ORDER BY id
+    """)
+
+    brands = cur.fetchall()
+
+    if not brands:
+        print("\n❌ No brands available.\n")
+        return None
+
+
+    print("\n========== Available Brands ==========")
+
+    for brand in brands:
+        print(
+            f"{brand[0]} - {brand[1]}"
+        )
+
+    print()
+
+
+    choice = input(
+        "Choose brand ID: "
+    ).strip()
+
+
+    if not choice.isdigit():
+        print("\n❌ Invalid brand selection.\n")
+        return None
+
+
+    brand_id = int(choice)
+
+
+    for brand in brands:
+        if brand[0] == brand_id:
+            return brand_id
+
+
+    print("\n❌ Brand not found.\n")
+    return None
+
+
+def add_product(cur, conn):
+    """
+    Add a new product to the inventory.
+    """
+
+    print("\n========== Add New Product ==========")
+
+
+    brand_id = select_brand(cur)
+
+    if brand_id is None:
+        return
+
+
+    product_name = input(
+        "Enter product name: "
+    ).strip()
+
+
+    price = input(
+        "Enter product price: "
+    ).strip()
+
+
+    quantity = input(
+        "Enter product quantity: "
+    ).strip()
+
+
+    try:
+        price = float(price)
+        quantity = int(quantity)
+
+    except ValueError:
+        print(
+            "\n❌ Price must be a number "
+            "and quantity must be an integer.\n"
+        )
+        return
+
+
+    cur.execute("""
+        INSERT INTO products
+            (
+                brand_id,
+                name,
+                price,
+                quantity
+            )
+        VALUES
+            (%s, %s, %s, %s)
+        RETURNING id
+    """,
+    (
+        brand_id,
+        product_name,
+        price,
+        quantity
+    ))
+
+
+    product_id = cur.fetchone()[0]
+
+
+    conn.commit()
+
+
+    print(
+        f"\n✅ Product added successfully!"
+        f"\nNew product ID: {product_id}\n"
+    )
