@@ -3,7 +3,8 @@ from inventory import (
     show_products,
     search_product,
     add_product,
-    update_product
+    update_product,
+    delete_product
 )
 
 
@@ -38,7 +39,7 @@ def main():
                 update_product(cur, conn)
 
             elif choice == "5":
-                print("Delete product - Coming soon.\n")
+                delete_product(cur, conn)
 
             elif choice == "6":
                 print("\nGoodbye!")

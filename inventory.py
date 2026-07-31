@@ -385,3 +385,52 @@ def update_product(cur, conn):
     print(
         "\n✅ Product updated successfully.\n"
     )
+
+
+def delete_product(cur, conn):
+    """
+    Delete a product from the inventory.
+    """
+
+    print("\n========== Delete Product ==========")
+
+    brand_id = select_brand(cur)
+
+    if brand_id is None:
+        return
+
+    product_id = select_product(cur, brand_id)
+
+    if product_id is None:
+        return
+
+    cur.execute("""
+        SELECT
+            name,
+            price,
+            quantity
+        FROM products
+        WHERE id = %s
+    """, (product_id,))
+
+    product = cur.fetchone()
+
+    print("\nYou are going to delete:")
+    print(f"Product: {product[0]}")
+    print(f"Price: {product[1]:.2f}")
+    print(f"Quantity: {product[2]}")
+
+    confirmation = input("\nAre you sure? (y/n): ").strip().lower()
+
+    if confirmation != "y":
+        print("\n❌ Delete cancelled.\n")
+        return
+
+    cur.execute("""
+        DELETE FROM products
+        WHERE id = %s
+    """, (product_id,))
+
+    conn.commit()
+
+    print("\n✅ Product deleted successfully.\n")
