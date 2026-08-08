@@ -360,23 +360,20 @@ def select_product(cur, brand_id):
 
 def update_product(cur, conn):
     """
-    Update product price and quantity.
+    Update product name, price, and quantity.
     """
 
     print("\n========== Update Product ==========")
-
 
     brand_id = select_brand(cur)
 
     if brand_id is None:
         return
 
-
     product_id = select_product(cur, brand_id)
 
     if product_id is None:
         return
-
 
     cur.execute("""
         SELECT
@@ -387,35 +384,30 @@ def update_product(cur, conn):
         WHERE id = %s
     """, (product_id,))
 
-
     product = cur.fetchone()
 
-
     print("\nCurrent product:")
-    print(
-        f"Product: {product[0]}"
-    )
-    print(
-        f"Price: {product[1]:.2f}"
-    )
-    print(
-        f"Quantity: {product[2]}"
-    )
+    print(f"Product: {product[0]}")
+    print(f"Price: {product[1]:.2f}")
+    print(f"Quantity: {product[2]}")
 
-
-    new_price = input(
-        "\nNew price (Enter to keep current): "
+    new_name = input(
+        "\nNew product name (Enter to keep current): "
     ).strip()
 
+    new_price = input(
+        "New price (Enter to keep current): "
+    ).strip()
 
     new_quantity = input(
         "New quantity (Enter to keep current): "
     ).strip()
 
+    if new_name == "":
+        new_name = product[0]
 
     if new_price == "":
         new_price = product[1]
-
     else:
         try:
             new_price = float(new_price)
@@ -426,10 +418,8 @@ def update_product(cur, conn):
             )
             return
 
-
     if new_quantity == "":
         new_quantity = product[2]
-
     else:
         try:
             new_quantity = int(new_quantity)
@@ -440,23 +430,22 @@ def update_product(cur, conn):
             )
             return
 
-
     cur.execute("""
         UPDATE products
         SET
+            name = %s,
             price = %s,
             quantity = %s
         WHERE id = %s
     """,
     (
+        new_name,
         new_price,
         new_quantity,
         product_id
     ))
 
-
     conn.commit()
-
 
     print(
         "\n✅ Product updated successfully.\n"
