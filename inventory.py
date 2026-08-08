@@ -1,6 +1,8 @@
+PAGE_SIZE = 5
+
 def show_products(cur):
     """
-    Display all products in the inventory.
+    Display all products with pagination.
     """
 
     cur.execute("""
@@ -18,20 +20,94 @@ def show_products(cur):
 
     products = cur.fetchall()
 
-    print("\n================== Products ==================")
-    print(f"{'ID':<5}{'Brand':<20}{'Product':<25}{'Price':<12}{'Qty'}")
-    print("-" * 75)
 
-    for product in products:
+    if not products:
+        print("\n❌ No products available.\n")
+        return
+
+
+    page = 0
+
+
+    while True:
+
+        total_pages = (
+            (len(products) - 1) // PAGE_SIZE
+        ) + 1
+
+
+        start = page * PAGE_SIZE
+        end = start + PAGE_SIZE
+
+
+        print("\n================== Products ==================")
         print(
-            f"{product[0]:<5}"
-            f"{product[1]:<20}"
-            f"{product[2]:<25}"
-            f"${product[3]:<11.2f}"
-            f"{product[4]}"
+            f"Page {page + 1} of {total_pages}"
         )
 
-    print()
+        print(
+            f"{'ID':<5}"
+            f"{'Brand':<20}"
+            f"{'Product':<25}"
+            f"{'Price':<12}"
+            f"{'Qty'}"
+        )
+
+        print("-" * 75)
+
+
+        for product in products[start:end]:
+
+            print(
+                f"{product[0]:<5}"
+                f"{product[1]:<20}"
+                f"{product[2]:<25}"
+                f"${product[3]:<11.2f}"
+                f"{product[4]}"
+            )
+
+
+        print("\nCommands:")
+        print("next - Next page")
+        print("prev - Previous page")
+        print("back - Return")
+
+
+        command = input("\nYour choice: ").strip().lower()
+
+
+        if command == "next":
+
+            if page < total_pages - 1:
+                page += 1
+
+            else:
+                print(
+                    "\nAlready on the last page.\n"
+                )
+
+
+        elif command == "prev":
+
+            if page > 0:
+                page -= 1
+
+            else:
+                print(
+                    "\nAlready on the first page.\n"
+                )
+
+
+        elif command == "back":
+
+            break
+
+
+        else:
+
+            print(
+                "\n❌ Unknown command.\n"
+            )
 
 
 def search_product(cur):
