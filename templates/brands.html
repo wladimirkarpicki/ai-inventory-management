@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}
+Brands
+{% endblock %}
+
+
+{% block content %}
+
+<h1>Brands</h1>
+
+<table>
+
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Brand</th>
+            <th>Products</th>
+        </tr>
+    </thead>
+
+    <tbody>
+
+        {% for brand in brands %}
+
+        <tr>
+            <td>{{ brand[0] }}</td>
+            <td>{{ brand[1] }}</td>
+            <td>{{ brand[2] }}</td>
+        </tr>
+
+        {% endfor %}
+
+    </tbody>
+
+</table>
+
+<div class="pagination">
+
+    {% if page > 1 %}
+        <a href="{{ url_for('brands', page=page - 1) }}">
+            ← Previous
+        </a>
+    {% endif %}
+
+    <span>
+        Page {{ page }} of {{ total_pages }}
+    </span>
+
+    {% if page < total_pages %}
+        <a href="{{ url_for('brands', page=page + 1) }}">
+            Next →
+        </a>
+    {% endif %}
+
+</div>
+
+{% endblock %}
