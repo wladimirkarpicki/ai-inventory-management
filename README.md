@@ -21,7 +21,8 @@ PostgreSQL
 psycopg
 Jinja2
 python-dotenv
-Installation
+
+### Installation
 
 ### Clone the repository:
 git clone https://github.com/wladimirkarpicki/inventory-management-system.git
