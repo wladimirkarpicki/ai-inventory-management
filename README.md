@@ -1,33 +1,45 @@
-# Inventory Management System
+### Inventory Management System
 
-A command-line inventory management application built with Python and PostgreSQL.
+### A Python-based inventory management application with a Flask web interface, CLI, and PostgreSQL database.
 
-## Features
+### Features:
+View all products
+Search products
+Add new products
+Update existing products
+Delete products
+View brands
+Product and brand pagination
+Product selection by brand
+PostgreSQL database integration
+CLI and Flask web interface
 
-- View all products
-- Search products
-- Add new products
-- Update existing products
-- Delete products
-- PostgreSQL database integration
+### Technologies:
+Python 3
+Flask
+PostgreSQL
+psycopg
+Jinja2
+python-dotenv
+Installation
 
-## Technologies
+### Clone the repository:
+git clone https://github.com/wladimirkarpicki/inventory-management-system.git
+cd inventory-management-system
 
-- Python 3
-- PostgreSQL
-- psycopg
-
-## Installation
-
-1. Clone the repository.
-2. Install dependencies:
-
-```bash
+### Install dependencies:
 pip install -r requirements.txt
-```
 
-3. Run the application:
+### Configure the PostgreSQL database in .env:
+DATABASE_HOST=localhost
+DATABASE_NAME=your_database
+DATABASE_USER=your_username
+DATABASE_PASSWORD=your_password
 
-```bash
+### Run
+
+### CLI:
 python main.py
-```
+
+### Web application:
+python app.py
