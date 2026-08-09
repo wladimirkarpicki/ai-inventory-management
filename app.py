@@ -1,4 +1,10 @@
-from flask import Flask, render_template, request
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for
+)
 
 import psycopg
 
@@ -68,6 +74,62 @@ def products():
         products=products,
         page=page,
         total_pages=total_pages
+    )
+
+
+@app.route("/products/add", methods=["GET", "POST"])
+def add_product():
+
+    conn = psycopg.connect(get_connection_string())
+    cur = conn.cursor()
+
+    if request.method == "POST":
+
+        brand_id = request.form["brand_id"]
+        product_name = request.form["name"]
+        price = request.form["price"]
+        quantity = request.form["quantity"]
+
+        cur.execute("""
+            INSERT INTO products
+                (
+                    brand_id,
+                    name,
+                    price,
+                    quantity
+                )
+            VALUES
+                (%s, %s, %s, %s)
+        """, (
+            brand_id,
+            product_name,
+            price,
+            quantity
+        ))
+
+        conn.commit()
+
+        cur.close()
+        conn.close()
+
+        return redirect(url_for("products"))
+
+    cur.execute("""
+        SELECT
+            id,
+            name
+        FROM brands
+        ORDER BY id
+    """)
+
+    brands = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    return render_template(
+        "add_product.html",
+        brands=brands
     )
 
 
