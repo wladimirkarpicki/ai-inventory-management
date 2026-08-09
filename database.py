@@ -1,5 +1,32 @@
+import os
+
 import psycopg
+from dotenv import load_dotenv
 from getpass import getpass
+
+
+load_dotenv()
+
+
+def get_connection_string():
+    """
+    Build the PostgreSQL connection string from environment variables.
+    """
+
+    host = os.getenv("DATABASE_HOST")
+    database = os.getenv("DATABASE_NAME")
+    user = os.getenv("DATABASE_USER")
+    password = os.getenv("DATABASE_PASSWORD")
+
+    if not all([host, database, user, password]):
+        raise ValueError(
+            "Database configuration is incomplete. "
+            "Check your .env file."
+        )
+
+    return (
+        f"postgresql://{user}:{password}@{host}/{database}"
+    )
 
 
 def connect_to_db():
@@ -12,14 +39,7 @@ def connect_to_db():
 
     while True:
         try:
-            host = input("Enter database host (e.g., localhost): ")
-            database = input("Enter database name: ")
-            user = input("Enter username: ")
-            password = getpass("Enter password: ")
-
-            connection_string = (
-                f"postgresql://{user}:{password}@{host}/{database}"
-            )
+            connection_string = get_connection_string()
 
             conn = psycopg.connect(connection_string)
             cur = conn.cursor()
@@ -30,6 +50,8 @@ def connect_to_db():
 
         except psycopg.OperationalError:
             print(
-                "\n❌ Invalid credentials or connection details."
-                "\nPlease try again.\n"
+                "\n❌ Unable to connect to the database."
+                "\nPlease check your database configuration.\n"
             )
+
+            break

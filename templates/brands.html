@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}
+Brands
+{% endblock %}
+
+
+{% block content %}
+
+<h1>Brands</h1>
+
+<table>
+
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Brand</th>
+            <th>Products</th>
+        </tr>
+    </thead>
+
+    <tbody>
+
+        {% for brand in brands %}
+
+        <tr>
+            <td>{{ brand[0] }}</td>
+            <td>{{ brand[1] }}</td>
+            <td>{{ brand[2] }}</td>
+        </tr>
+
+        {% endfor %}
+
+    </tbody>
+
+</table>
+
+{% endblock %}
