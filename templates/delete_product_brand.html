@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}
+Delete Product
+{% endblock %}
+
+
+{% block content %}
+
+<div class="form-container">
+
+    <h1>Delete Product</h1>
+
+    <form method="GET">
+
+        <div class="form-group">
+
+            <label for="brand">
+                Brand
+            </label>
+
+            <select
+                id="brand"
+                name="brand_id"
+                required
+            >
+
+                <option value="">
+                    Select a brand
+                </option>
+
+                {% for brand in brands %}
+
+                <option value="{{ brand[0] }}">
+                    {{ brand[1] }}
+                </option>
+
+                {% endfor %}
+
+            </select>
+
+        </div>
+
+        <div class="form-actions">
+
+            <button
+                type="submit"
+                class="btn btn-primary"
+            >
+                Continue
+            </button>
+
+            <a
+                href="{{ url_for('products') }}"
+                class="btn btn-secondary"
+            >
+                Cancel
+            </a>
+
+        </div>
+
+    </form>
+
+</div>
+
+{% endblock %}

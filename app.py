@@ -304,5 +304,121 @@ def brands():
     )
 
 
+@app.route("/products/delete", methods=["GET", "POST"])
+def delete_product():
+
+    brand_id = request.args.get(
+        "brand_id",
+        type=int
+    )
+
+    product_id = request.args.get(
+        "product_id",
+        type=int
+    )
+
+    conn = psycopg.connect(get_connection_string())
+    cur = conn.cursor()
+
+    # POST: delete the selected product
+    if request.method == "POST":
+
+        if product_id is None:
+            cur.close()
+            conn.close()
+
+            return "Product ID is required", 400
+
+        cur.execute("""
+            DELETE FROM products
+            WHERE id = %s
+        """, (product_id,))
+
+        if cur.rowcount == 0:
+            conn.rollback()
+            cur.close()
+            conn.close()
+
+            return "Product not found", 404
+
+        conn.commit()
+
+        cur.close()
+        conn.close()
+
+        return redirect(url_for("products"))
+
+    # GET: no selection yet → show brands
+    if brand_id is None and product_id is None:
+
+        cur.execute("""
+            SELECT
+                id,
+                name
+            FROM brands
+            ORDER BY id
+        """)
+
+        brands = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        return render_template(
+            "delete_product_brand.html",
+            brands=brands
+        )
+
+    # GET: brand selected → show products
+    if product_id is None:
+
+        cur.execute("""
+            SELECT
+                id,
+                name,
+                price,
+                quantity
+            FROM products
+            WHERE brand_id = %s
+            ORDER BY id
+        """, (brand_id,))
+
+        products = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        return render_template(
+            "delete_product_select.html",
+            products=products,
+            brand_id=brand_id
+        )
+
+    # GET: product selected → show confirmation
+    cur.execute("""
+        SELECT
+            id,
+            brand_id,
+            name,
+            price,
+            quantity
+        FROM products
+        WHERE id = %s
+    """, (product_id,))
+
+    product = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    if product is None:
+        return "Product not found", 404
+
+    return render_template(
+        "delete_product_confirm.html",
+        product=product
+    )
+
+
 if __name__ == "__main__":
     app.run(debug=True)
