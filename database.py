@@ -1,10 +1,15 @@
+import os
+
 import psycopg
+from dotenv import load_dotenv
 from getpass import getpass
 
 
 def connect_to_db():
     """
     Connect to the PostgreSQL database.
+
+    Used by the CLI application.
 
     Returns:
         tuple: (connection, cursor)
@@ -33,3 +38,5 @@ def connect_to_db():
                 "\n❌ Invalid credentials or connection details."
                 "\nPlease try again.\n"
             )
+
+            break
