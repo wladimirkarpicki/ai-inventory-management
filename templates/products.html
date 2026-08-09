@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}
+Products
+{% endblock %}
+
+
+{% block content %}
+
+<h1>Products</h1>
+
+<a
+    href="{{ url_for('add_product') }}"
+    class="btn btn-primary add-product-button"
+>
+    + Add Product
+</a>
+
+<a
+    href="{{ url_for('edit_product') }}"
+    class="btn btn-primary"
+>
+    Edit Product
+</a>
+
+<a
+    href="{{ url_for('delete_product') }}"
+    class="btn btn-primary"
+>
+    Delete Product
+</a>
+
+<table>
+
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Brand</th>
+            <th>Product</th>
+            <th>Price</th>
+            <th>Quantity</th>
+        </tr>
+    </thead>
+
+    <tbody>
+
+        {% for product in products %}
+
+        <tr>
+            <td>{{ product[0] }}</td>
+            <td>{{ product[1] }}</td>
+            <td>{{ product[2] }}</td>
+            <td>${{ "%.2f"|format(product[3]) }}</td>
+            <td>{{ product[4] }}</td>
+        </tr>
+
+        {% endfor %}
+
+    </tbody>
+
+</table>
+
+<div class="pagination">
+
+    {% if page > 1 %}
+        <a href="{{ url_for('products', page=page - 1) }}">
+            ← Previous
+        </a>
+    {% endif %}
+
+
+    <span>
+        Page {{ page }} of {{ total_pages }}
+    </span>
+
+
+    {% if page < total_pages %}
+        <a href="{{ url_for('products', page=page + 1) }}">
+            Next →
+        </a>
+    {% endif %}
+
+</div>
+
+{% endblock %}

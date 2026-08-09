@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}
+Select Product
+{% endblock %}
+
+
+{% block content %}
+
+<div class="form-container">
+
+    <h1>Select Product</h1>
+
+    {% if products %}
+
+        <form method="GET">
+
+            <div class="form-group">
+
+                <label for="product">
+                    Product
+                </label>
+
+                <select
+                    id="product"
+                    name="product_id"
+                    required
+                >
+
+                    <option value="">
+                        Select a product
+                    </option>
+
+                    {% for product in products %}
+
+                    <option value="{{ product[0] }}">
+                        {{ product[1] }}
+                        - ${{ "%.2f"|format(product[2]) }}
+                        - Qty: {{ product[3] }}
+                    </option>
+
+                    {% endfor %}
+
+                </select>
+
+            </div>
+
+            <div class="form-actions">
+
+                <button
+                    type="submit"
+                    class="btn btn-primary"
+                >
+                    Continue
+                </button>
+
+                <a
+                    href="{{ url_for('edit_product') }}"
+                    class="btn btn-secondary"
+                >
+                    Back
+                </a>
+
+            </div>
+
+        </form>
+
+    {% else %}
+
+        <p>
+            No products found for this brand.
+        </p>
+
+        <a
+            href="{{ url_for('edit_product') }}"
+            class="btn btn-secondary"
+        >
+            Back
+        </a>
+
+    {% endif %}
+
+</div>
+
+{% endblock %}
