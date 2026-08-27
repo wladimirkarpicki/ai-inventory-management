@@ -47,10 +47,6 @@ DATABASE_USER=your_username
 DATABASE_PASSWORD=your_password
 ```
 
-## Run
-
-CLI:
-
 ### Run
 
 ### CLI:
