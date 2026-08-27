@@ -33,6 +33,8 @@ def connect_to_db():
     """
     Connect to the PostgreSQL database.
 
+    Used by the CLI application.
+
     Returns:
         tuple: (connection, cursor)
     """

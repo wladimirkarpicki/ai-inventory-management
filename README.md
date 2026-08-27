@@ -37,7 +37,6 @@ Install dependencies:
 
 ```bash
 pip install -r requirements.txt
-```
 
 Configure the PostgreSQL database in `.env`:
 
@@ -52,7 +51,9 @@ DATABASE_PASSWORD=your_password
 
 CLI:
 
-```bash
+### Run
+
+### CLI:
 python main.py
 ```
 
