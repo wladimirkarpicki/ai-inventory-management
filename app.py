@@ -420,5 +420,260 @@ def delete_product():
     )
 
 
+
+
+def validate_brand_name(name):
+    """
+    Validate a brand name for add / edit operations.
+    Returns an error message string, or None when the name is valid.
+    """
+
+    if not name:
+        return "Brand name is required."
+
+    if len(name) > 100:
+        return "Brand name must be 100 characters or fewer."
+
+    return None
+
+
+@app.route("/brands/add", methods=["GET", "POST"])
+def add_brand():
+
+    name = ""
+    error = ""
+
+    if request.method == "POST":
+
+        name = request.form.get("name", "").strip()
+        error = validate_brand_name(name)
+
+        if error is None:
+            conn = None
+
+            try:
+                conn = psycopg.connect(get_connection_string())
+                cur = conn.cursor()
+
+                cur.execute(
+                    "SELECT 1 FROM brands WHERE LOWER(name) = LOWER(%s)",
+                    (name,)
+                )
+
+                if cur.fetchone() is not None:
+                    error = f'A brand named "{name}" already exists.'
+                else:
+                    cur.execute(
+                        "INSERT INTO brands (name) VALUES (%s)",
+                        (name,)
+                    )
+
+                    conn.commit()
+
+                cur.close()
+
+            except psycopg.errors.UniqueViolation:
+                error = f'A brand named "{name}" already exists.'
+
+            finally:
+                if conn is not None:
+                    conn.close()
+
+        if error is None:
+            return redirect(url_for("brands"))
+
+    return render_template("add_brand.html", name=name, error=error)
+
+
+@app.route("/brands/edit", methods=["GET", "POST"])
+def edit_brand():
+
+    brand_id = request.args.get(
+        "brand_id",
+        type=int
+    )
+
+    # POST: save changes
+    if request.method == "POST":
+
+        name = request.form.get("name", "").strip()
+        error = validate_brand_name(name)
+        success = False
+        brand = None
+
+        conn = None
+
+        try:
+            conn = psycopg.connect(get_connection_string())
+            cur = conn.cursor()
+
+            cur.execute(
+                "SELECT id, name FROM brands WHERE id = %s",
+                (brand_id,)
+            )
+
+            row = cur.fetchone()
+
+            if row is None:
+                cur.close()
+                conn.close()
+                return "Brand not found", 404
+
+            if error is None:
+                cur.execute(
+                    "SELECT id FROM brands WHERE LOWER(name) = LOWER(%s) AND id <> %s",
+                    (name, brand_id)
+                )
+
+                if cur.fetchone() is not None:
+                    error = f'A brand named "{name}" already exists.'
+
+            if error is None:
+                cur.execute(
+                    "UPDATE brands SET name = %s WHERE id = %s",
+                    (name, brand_id)
+                )
+
+                conn.commit()
+                success = True
+
+            cur.close()
+
+        except psycopg.errors.UniqueViolation:
+            error = f'A brand named "{name}" already exists.'
+
+        finally:
+            if conn is not None:
+                conn.close()
+
+        if success:
+            return redirect(url_for("brands"))
+
+        # Re-display the submitted name when editing after a validation error
+        brand = (brand_id, name)
+
+        return render_template("edit_brand.html", brand=brand, error=error)
+
+    # GET: no selection yet -> show brand picker
+    if brand_id is None:
+
+        conn = psycopg.connect(get_connection_string())
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT
+                id,
+                name
+            FROM brands
+            ORDER BY id
+        """)
+
+        brands = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        return render_template("edit_brand_select.html", brands=brands)
+
+    # GET: brand selected -> show edit form
+    conn = psycopg.connect(get_connection_string())
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT id, name FROM brands WHERE id = %s",
+        (brand_id,)
+    )
+
+    brand = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    if brand is None:
+        return "Brand not found", 404
+
+    return render_template("edit_brand.html", brand=brand, error="")
+
+
+
+
+@app.route("/brands/delete", methods=["GET", "POST"])
+def delete_brand():
+
+    brand_id = request.args.get("brand_id", type=int)
+
+    # POST: delete brand
+    if request.method == "POST":
+
+        conn = None
+
+        try:
+            conn = psycopg.connect(get_connection_string())
+            cur = conn.cursor()
+
+            cur.execute("SELECT id, name FROM brands WHERE id = %s", (brand_id,))
+            brand = cur.fetchone()
+
+            if brand is None:
+                cur.close()
+                conn.close()
+                return "Brand not found", 404
+
+            try:
+                cur.execute("DELETE FROM brands WHERE id = %s", (brand_id,))
+                conn.commit()
+            except psycopg.errors.ForeignKeyViolation:
+                conn.rollback()
+                cur.close()
+                conn.close()
+                return render_template(
+                    "delete_brand_confirm.html",
+                    brand=brand,
+                    error="This brand has products and cannot be deleted."
+                )
+
+            cur.close()
+
+        finally:
+            if conn is not None:
+                conn.close()
+
+        return redirect(url_for("brands"))
+
+    # GET: no selection -> show picker
+    if brand_id is None:
+
+        conn = psycopg.connect(get_connection_string())
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT id, name
+            FROM brands
+            ORDER BY id
+        """)
+
+        brands = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        return render_template("delete_brand_select.html", brands=brands)
+
+    # GET: brand selected -> show confirmation
+    conn = psycopg.connect(get_connection_string())
+    cur = conn.cursor()
+
+    cur.execute("SELECT id, name FROM brands WHERE id = %s", (brand_id,))
+    brand = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    if brand is None:
+        return "Brand not found", 404
+
+    return render_template("delete_brand_confirm.html", brand=brand)
+
+
 if __name__ == "__main__":
     app.run(debug=True)
