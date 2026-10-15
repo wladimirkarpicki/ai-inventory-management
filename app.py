@@ -14,7 +14,13 @@ from flask import (
     render_template,
     request,
     redirect,
+    session,
     url_for
+)
+
+from werkzeug.security import (
+    check_password_hash,
+    generate_password_hash
 )
 
 import psycopg
@@ -23,6 +29,16 @@ from database import get_connection_string
 
 
 app = Flask(__name__)
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+
+if not SECRET_KEY:
+    raise RuntimeError(
+        "SECRET_KEY is not set. "
+        "Add SECRET_KEY=<random value> to your .env file."
+    )
+
+app.secret_key = SECRET_KEY
 
 PAGE_SIZE = 5
 
@@ -70,6 +86,149 @@ def db_unavailable(exc):
         "error.html",
         message="Database unavailable. Please check that PostgreSQL is running and try again."
     ), 503
+
+
+@app.before_request
+def require_login():
+    """
+    Every page requires a logged-in user, except the auth
+    pages themselves. A fresh installation with no users
+    yet is guided to the setup page instead.
+    """
+
+    if request.endpoint is None or request.endpoint in ("static", "login", "setup"):
+        return None
+
+    if "user_id" in session:
+        return None
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT 1 FROM users LIMIT 1")
+
+    if cur.fetchone() is None:
+        return redirect(url_for("setup"))
+
+    return redirect(url_for("login"))
+
+
+@app.context_processor
+def inject_current_user():
+    """
+    Make the logged-in username available to templates.
+    """
+
+    user_id = session.get("user_id")
+
+    if user_id is None:
+        return {"current_user": None}
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT username FROM users WHERE id = %s",
+        (user_id,)
+    )
+
+    row = cur.fetchone()
+
+    return {"current_user": row[0] if row else None}
+
+
+@app.route("/setup", methods=["GET", "POST"])
+def setup():
+    """
+    First-run account creation. Only reachable while no
+    user exists; closes itself once an account is set up.
+    """
+
+    error = None
+    form = {"username": ""}
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT 1 FROM users LIMIT 1")
+
+    if cur.fetchone() is not None:
+        return redirect(url_for("login"))
+
+    if request.method == "POST":
+
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        confirm = request.form.get("confirm", "")
+
+        form["username"] = username
+
+        if not username:
+            error = "Username is required."
+        elif len(username) > 100:
+            error = "Username must be 100 characters or fewer."
+        elif len(password) < 8:
+            error = "Password must be at least 8 characters."
+        elif password != confirm:
+            error = "Passwords do not match."
+        else:
+            cur.execute(
+                "INSERT INTO users (username, password_hash) VALUES (%s, %s)",
+                (username, generate_password_hash(password))
+            )
+
+            conn.commit()
+
+            return redirect(url_for("login"))
+
+    return render_template("setup.html", error=error, form=form)
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    """
+    Sign in with username and password.
+    """
+
+    error = None
+    form = {"username": ""}
+
+    if request.method == "POST":
+
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+
+        form["username"] = username
+
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute(
+            "SELECT id, password_hash FROM users WHERE username = %s",
+            (username,)
+        )
+
+        row = cur.fetchone()
+
+        if row is None or not check_password_hash(row[1], password):
+            error = "Invalid username or password."
+        else:
+            session["user_id"] = row[0]
+
+            return redirect(url_for("home"))
+
+    return render_template("login.html", error=error, form=form)
+
+
+@app.route("/logout")
+def logout():
+    """
+    Sign out and return to the login page.
+    """
+
+    session.pop("user_id", None)
+
+    return redirect(url_for("login"))
 
 
 @app.route("/")
