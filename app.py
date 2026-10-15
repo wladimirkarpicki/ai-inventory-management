@@ -112,7 +112,7 @@ def require_login():
 
         return redirect(url_for("login"))
 
-    if request.endpoint in ("users", "add_user", "edit_user"):
+    if request.endpoint in ("users", "add_user", "edit_user", "delete_user"):
         conn = get_db()
         cur = conn.cursor()
 
@@ -389,6 +389,67 @@ def edit_user():
         "edit_user.html",
         account=account,
         error=error
+    )
+
+
+@app.route("/users/delete", methods=["GET", "POST"])
+def delete_user():
+    """
+    Admin-only account deletion with self-delete and
+    last-admin protection.
+    """
+
+    user_id = request.args.get("user_id", type=int)
+
+    if user_id is None:
+        return "User ID is required", 400
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT id, username, role FROM users WHERE id = %s",
+        (user_id,)
+    )
+
+    account = cur.fetchone()
+
+    if account is None:
+        return "User not found", 404
+
+    if request.method == "POST":
+
+        error = None
+
+        if account[0] == session.get("user_id"):
+            error = "You cannot delete your own account."
+        elif account[2] == "admin":
+            cur.execute(
+                "SELECT COUNT(*) FROM users WHERE role = 'admin'"
+            )
+
+            if cur.fetchone()[0] <= 1:
+                error = "Cannot delete the last admin account."
+
+        if error is None:
+            cur.execute(
+                "DELETE FROM users WHERE id = %s",
+                (user_id,)
+            )
+
+            conn.commit()
+
+            return redirect(url_for("users"))
+
+        return render_template(
+            "delete_user_confirm.html",
+            account=account,
+            error=error
+        )
+
+    return render_template(
+        "delete_user_confirm.html",
+        account=account
     )
 
 

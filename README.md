@@ -77,7 +77,13 @@ On first launch the app has no users yet, so every page redirects to **/setup**.
 
 ## User Management
 
-The admin can create additional user accounts from the **Users** page (visible in the navigation only for admins): each new user gets a username, a password of at least 8 characters, and a role — regular **User** or **Admin**. Regular users can work with products and brands but cannot manage accounts.
+The admin can manage accounts from the **Users** page (visible in the navigation only for admins):
+
+- **Create** users with a username, a password of at least 8 characters, and a role — regular **User** or **Admin**.
+- **Change roles** from each account's Edit page.
+- **Delete** accounts after a confirmation step.
+
+Two safety rules are enforced server-side: the last remaining admin cannot be demoted or deleted (so the installation can never lock itself out of administration), and you cannot delete the account you are currently signed in with. Regular users can work with products and brands but receive 403 on all account management pages.
 
 ## Project Structure
 
