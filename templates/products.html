@@ -67,11 +67,36 @@ Products
 
     <thead>
         <tr>
-            <th>ID</th>
-            <th>Brand</th>
-            <th>Product</th>
-            <th>Price</th>
-            <th>Quantity</th>
+            <th>
+                <a href="{{ url_for('products', sort='id', order=('desc' if sort == 'id' and order == 'asc' else 'asc'), search=search or none) }}">
+                    ID
+                    {% if sort == 'id' %}{{ '↑' if order == 'asc' else '↓' }}{% endif %}
+                </a>
+            </th>
+            <th>
+                <a href="{{ url_for('products', sort='brand', order=('desc' if sort == 'brand' and order == 'asc' else 'asc'), search=search or none) }}">
+                    Brand
+                    {% if sort == 'brand' %}{{ '↑' if order == 'asc' else '↓' }}{% endif %}
+                </a>
+            </th>
+            <th>
+                <a href="{{ url_for('products', sort='name', order=('desc' if sort == 'name' and order == 'asc' else 'asc'), search=search or none) }}">
+                    Product
+                    {% if sort == 'name' %}{{ '↑' if order == 'asc' else '↓' }}{% endif %}
+                </a>
+            </th>
+            <th>
+                <a href="{{ url_for('products', sort='price', order=('desc' if sort == 'price' and order == 'asc' else 'asc'), search=search or none) }}">
+                    Price
+                    {% if sort == 'price' %}{{ '↑' if order == 'asc' else '↓' }}{% endif %}
+                </a>
+            </th>
+            <th>
+                <a href="{{ url_for('products', sort='quantity', order=('desc' if sort == 'quantity' and order == 'asc' else 'asc'), search=search or none) }}">
+                    Quantity
+                    {% if sort == 'quantity' %}{{ '↑' if order == 'asc' else '↓' }}{% endif %}
+                </a>
+            </th>
         </tr>
     </thead>
 
@@ -104,7 +129,7 @@ Products
 <div class="pagination">
 
     {% if page > 1 %}
-        <a href="{{ url_for('products', page=page - 1, search=search or none) }}">
+        <a href="{{ url_for('products', page=page - 1, sort=sort or none, order=(order if sort else none), search=search or none) }}">
             ← Previous
         </a>
     {% endif %}
@@ -116,7 +141,7 @@ Products
 
 
     {% if page < total_pages %}
-        <a href="{{ url_for('products', page=page + 1, search=search or none) }}">
+        <a href="{{ url_for('products', page=page + 1, sort=sort or none, order=(order if sort else none), search=search or none) }}">
             Next →
         </a>
     {% endif %}
