@@ -63,7 +63,43 @@ def db_unavailable(exc):
 
 @app.route("/")
 def home():
-    return render_template("index.html")
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT
+            COUNT(*),
+            COALESCE(SUM(quantity), 0),
+            COALESCE(SUM(price * quantity), 0)
+        FROM products
+    """)
+
+    total_products, total_units, total_value = cur.fetchone()
+
+    cur.execute("""
+        SELECT COUNT(*)
+        FROM brands
+    """)
+
+    total_brands = cur.fetchone()[0]
+
+    cur.execute("""
+        SELECT COUNT(*)
+        FROM products
+        WHERE quantity <= 5
+    """)
+
+    low_stock_products = cur.fetchone()[0]
+
+    return render_template(
+        "index.html",
+        total_products=total_products,
+        total_brands=total_brands,
+        total_units=total_units,
+        total_value=total_value,
+        low_stock_products=low_stock_products
+    )
 
 
 @app.route("/products")
