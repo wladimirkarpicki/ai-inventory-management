@@ -49,19 +49,8 @@ Optionally add `FLASK_DEBUG=1` to enable Flask debug mode and auto-reload during
 
 4. Create the database tables:
 
-```sql
-CREATE TABLE brands (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL UNIQUE
-);
-
-CREATE TABLE products (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR NOT NULL,
-    brand_id INTEGER NOT NULL REFERENCES brands (id),
-    price NUMERIC NOT NULL,
-    quantity INTEGER
-);
+```bash
+psql -d your_database -f schema.sql
 ```
 
 ## Run
@@ -76,5 +65,6 @@ Then open http://127.0.0.1:5000 in your browser.
 
 - `app.py` — Flask application with all routes
 - `database.py` — reads `.env` and builds the PostgreSQL connection string
+- `schema.sql` — database schema for a fresh installation
 - `templates/` — Jinja2 templates
 - `requirements.txt` — Python dependencies
