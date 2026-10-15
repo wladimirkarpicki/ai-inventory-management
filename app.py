@@ -78,34 +78,71 @@ def products():
     if page < 1:
         page = 1
 
+    search = request.args.get("search", "").strip()
+
     offset = (page - 1) * PAGE_SIZE
 
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT
-            p.id,
-            b.name,
-            p.name,
-            p.price,
-            p.quantity
-        FROM products p
-        JOIN brands b
-            ON p.brand_id = b.id
-        ORDER BY b.name, p.name
-        LIMIT %s
-        OFFSET %s
-    """, (PAGE_SIZE, offset))
+    if search:
+        pattern = f"%{escape_like(search)}%"
+        query_args = (pattern, pattern)
 
-    products = cur.fetchall()
+        cur.execute("""
+            SELECT
+                p.id,
+                b.name,
+                p.name,
+                p.price,
+                p.quantity
+            FROM products p
+            JOIN brands b
+                ON p.brand_id = b.id
+            WHERE p.name ILIKE %s ESCAPE '\\'
+                OR b.name ILIKE %s ESCAPE '\\'
+            ORDER BY b.name, p.name
+            LIMIT %s
+            OFFSET %s
+        """, query_args + (PAGE_SIZE, offset))
 
-    cur.execute("""
-        SELECT COUNT(*)
-        FROM products
-    """)
+        products = cur.fetchall()
 
-    total_products = cur.fetchone()[0]
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM products p
+            JOIN brands b
+                ON p.brand_id = b.id
+            WHERE p.name ILIKE %s ESCAPE '\\'
+                OR b.name ILIKE %s ESCAPE '\\'
+        """, query_args)
+
+        total_products = cur.fetchone()[0]
+
+    else:
+        cur.execute("""
+            SELECT
+                p.id,
+                b.name,
+                p.name,
+                p.price,
+                p.quantity
+            FROM products p
+            JOIN brands b
+                ON p.brand_id = b.id
+            ORDER BY b.name, p.name
+            LIMIT %s
+            OFFSET %s
+        """, (PAGE_SIZE, offset))
+
+        products = cur.fetchall()
+
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM products
+        """)
+
+        total_products = cur.fetchone()[0]
 
     total_pages = (
         (total_products - 1) // PAGE_SIZE
@@ -115,7 +152,8 @@ def products():
         "products.html",
         products=products,
         page=page,
-        total_pages=total_pages
+        total_pages=total_pages,
+        search=search
     )
 
 
@@ -483,6 +521,19 @@ def delete_product():
     return render_template(
         "delete_product_confirm.html",
         product=product
+    )
+
+
+def escape_like(term):
+    """
+    Escape LIKE wildcards in a search term so they match literally.
+    """
+
+    return (
+        term
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
     )
 
 

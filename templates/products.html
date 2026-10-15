@@ -30,6 +30,39 @@ Products
     Delete Product
 </a>
 
+<form
+    method="GET"
+    action="{{ url_for('products') }}"
+    class="search-form"
+>
+
+    <input
+        type="text"
+        name="search"
+        value="{{ search }}"
+        placeholder="Search by product or brand name..."
+    >
+
+    <button
+        type="submit"
+        class="btn btn-primary"
+    >
+        Search
+    </button>
+
+    {% if search %}
+
+    <a
+        href="{{ url_for('products') }}"
+        class="btn btn-secondary"
+    >
+        Clear
+    </a>
+
+    {% endif %}
+
+</form>
+
 <table>
 
     <thead>
@@ -54,6 +87,14 @@ Products
             <td>{{ product[4] }}</td>
         </tr>
 
+        {% else %}
+
+        <tr>
+            <td colspan="5">
+                No products found.
+            </td>
+        </tr>
+
         {% endfor %}
 
     </tbody>
@@ -63,7 +104,7 @@ Products
 <div class="pagination">
 
     {% if page > 1 %}
-        <a href="{{ url_for('products', page=page - 1) }}">
+        <a href="{{ url_for('products', page=page - 1, search=search or none) }}">
             ← Previous
         </a>
     {% endif %}
@@ -75,7 +116,7 @@ Products
 
 
     {% if page < total_pages %}
-        <a href="{{ url_for('products', page=page + 1) }}">
+        <a href="{{ url_for('products', page=page + 1, search=search or none) }}">
             Next →
         </a>
     {% endif %}
