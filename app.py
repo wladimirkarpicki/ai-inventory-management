@@ -1,5 +1,6 @@
 from flask import (
     Flask,
+    g,
     render_template,
     request,
     redirect,
@@ -14,6 +15,30 @@ from database import get_connection_string
 app = Flask(__name__)
 
 PAGE_SIZE = 5
+
+
+def get_db():
+    """
+    One PostgreSQL connection per request, closed automatically
+    when the request ends.
+    """
+
+    if "db" not in g:
+        g.db = psycopg.connect(get_connection_string())
+
+    return g.db
+
+
+@app.teardown_appcontext
+def close_db(exc):
+    """
+    Close the request-scoped DB connection, if one was opened.
+    """
+
+    db = g.pop("db", None)
+
+    if db is not None:
+        db.close()
 
 
 @app.route("/")
@@ -35,7 +60,7 @@ def products():
 
     offset = (page - 1) * PAGE_SIZE
 
-    conn = psycopg.connect(get_connection_string())
+    conn = get_db()
     cur = conn.cursor()
 
     cur.execute("""
@@ -62,9 +87,6 @@ def products():
 
     total_products = cur.fetchone()[0]
 
-    cur.close()
-    conn.close()
-
     total_pages = (
         (total_products - 1) // PAGE_SIZE
     ) + 1 if total_products else 1
@@ -80,7 +102,7 @@ def products():
 @app.route("/products/add", methods=["GET", "POST"])
 def add_product():
 
-    conn = psycopg.connect(get_connection_string())
+    conn = get_db()
     cur = conn.cursor()
 
     if request.method == "POST":
@@ -109,9 +131,6 @@ def add_product():
 
         conn.commit()
 
-        cur.close()
-        conn.close()
-
         return redirect(url_for("products"))
 
     cur.execute("""
@@ -123,9 +142,6 @@ def add_product():
     """)
 
     brands = cur.fetchall()
-
-    cur.close()
-    conn.close()
 
     return render_template(
         "add_product.html",
@@ -146,7 +162,7 @@ def edit_product():
         type=int
     )
 
-    conn = psycopg.connect(get_connection_string())
+    conn = get_db()
     cur = conn.cursor()
 
     # POST: save changes
@@ -172,9 +188,6 @@ def edit_product():
 
         conn.commit()
 
-        cur.close()
-        conn.close()
-
         return redirect(url_for("products"))
 
     # GET: no selection yet → show brands
@@ -189,9 +202,6 @@ def edit_product():
         """)
 
         brands = cur.fetchall()
-
-        cur.close()
-        conn.close()
 
         return render_template(
             "edit_product_brand.html",
@@ -214,9 +224,6 @@ def edit_product():
 
         products = cur.fetchall()
 
-        cur.close()
-        conn.close()
-
         return render_template(
             "edit_product_select.html",
             products=products,
@@ -236,9 +243,6 @@ def edit_product():
     """, (product_id,))
 
     product = cur.fetchone()
-
-    cur.close()
-    conn.close()
 
     if product is None:
         return "Product not found", 404
@@ -263,7 +267,7 @@ def brands():
 
     offset = (page - 1) * PAGE_SIZE
 
-    conn = psycopg.connect(get_connection_string())
+    conn = get_db()
     cur = conn.cursor()
 
     cur.execute("""
@@ -288,9 +292,6 @@ def brands():
     """)
 
     total_brands = cur.fetchone()[0]
-
-    cur.close()
-    conn.close()
 
     total_pages = (
         (total_brands - 1) // PAGE_SIZE
@@ -317,16 +318,13 @@ def delete_product():
         type=int
     )
 
-    conn = psycopg.connect(get_connection_string())
+    conn = get_db()
     cur = conn.cursor()
 
     # POST: delete the selected product
     if request.method == "POST":
 
         if product_id is None:
-            cur.close()
-            conn.close()
-
             return "Product ID is required", 400
 
         cur.execute("""
@@ -336,15 +334,10 @@ def delete_product():
 
         if cur.rowcount == 0:
             conn.rollback()
-            cur.close()
-            conn.close()
 
             return "Product not found", 404
 
         conn.commit()
-
-        cur.close()
-        conn.close()
 
         return redirect(url_for("products"))
 
@@ -360,9 +353,6 @@ def delete_product():
         """)
 
         brands = cur.fetchall()
-
-        cur.close()
-        conn.close()
 
         return render_template(
             "delete_product_brand.html",
@@ -385,9 +375,6 @@ def delete_product():
 
         products = cur.fetchall()
 
-        cur.close()
-        conn.close()
-
         return render_template(
             "delete_product_select.html",
             products=products,
@@ -408,9 +395,6 @@ def delete_product():
 
     product = cur.fetchone()
 
-    cur.close()
-    conn.close()
-
     if product is None:
         return "Product not found", 404
 
@@ -418,8 +402,6 @@ def delete_product():
         "delete_product_confirm.html",
         product=product
     )
-
-
 
 
 def validate_brand_name(name):
@@ -449,10 +431,9 @@ def add_brand():
         error = validate_brand_name(name)
 
         if error is None:
-            conn = None
 
             try:
-                conn = psycopg.connect(get_connection_string())
+                conn = get_db()
                 cur = conn.cursor()
 
                 cur.execute(
@@ -470,14 +451,8 @@ def add_brand():
 
                     conn.commit()
 
-                cur.close()
-
             except psycopg.errors.UniqueViolation:
                 error = f'A brand named "{name}" already exists.'
-
-            finally:
-                if conn is not None:
-                    conn.close()
 
         if error is None:
             return redirect(url_for("brands"))
@@ -499,12 +474,9 @@ def edit_brand():
         name = request.form.get("name", "").strip()
         error = validate_brand_name(name)
         success = False
-        brand = None
-
-        conn = None
 
         try:
-            conn = psycopg.connect(get_connection_string())
+            conn = get_db()
             cur = conn.cursor()
 
             cur.execute(
@@ -515,8 +487,6 @@ def edit_brand():
             row = cur.fetchone()
 
             if row is None:
-                cur.close()
-                conn.close()
                 return "Brand not found", 404
 
             if error is None:
@@ -537,14 +507,8 @@ def edit_brand():
                 conn.commit()
                 success = True
 
-            cur.close()
-
         except psycopg.errors.UniqueViolation:
             error = f'A brand named "{name}" already exists.'
-
-        finally:
-            if conn is not None:
-                conn.close()
 
         if success:
             return redirect(url_for("brands"))
@@ -557,7 +521,7 @@ def edit_brand():
     # GET: no selection yet -> show brand picker
     if brand_id is None:
 
-        conn = psycopg.connect(get_connection_string())
+        conn = get_db()
         cur = conn.cursor()
 
         cur.execute("""
@@ -570,13 +534,10 @@ def edit_brand():
 
         brands = cur.fetchall()
 
-        cur.close()
-        conn.close()
-
         return render_template("edit_brand_select.html", brands=brands)
 
     # GET: brand selected -> show edit form
-    conn = psycopg.connect(get_connection_string())
+    conn = get_db()
     cur = conn.cursor()
 
     cur.execute(
@@ -586,15 +547,10 @@ def edit_brand():
 
     brand = cur.fetchone()
 
-    cur.close()
-    conn.close()
-
     if brand is None:
         return "Brand not found", 404
 
     return render_template("edit_brand.html", brand=brand, error="")
-
-
 
 
 @app.route("/brands/delete", methods=["GET", "POST"])
@@ -605,45 +561,32 @@ def delete_brand():
     # POST: delete brand
     if request.method == "POST":
 
-        conn = None
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id, name FROM brands WHERE id = %s", (brand_id,))
+        brand = cur.fetchone()
+
+        if brand is None:
+            return "Brand not found", 404
 
         try:
-            conn = psycopg.connect(get_connection_string())
-            cur = conn.cursor()
-
-            cur.execute("SELECT id, name FROM brands WHERE id = %s", (brand_id,))
-            brand = cur.fetchone()
-
-            if brand is None:
-                cur.close()
-                conn.close()
-                return "Brand not found", 404
-
-            try:
-                cur.execute("DELETE FROM brands WHERE id = %s", (brand_id,))
-                conn.commit()
-            except psycopg.errors.ForeignKeyViolation:
-                conn.rollback()
-                cur.close()
-                conn.close()
-                return render_template(
-                    "delete_brand_confirm.html",
-                    brand=brand,
-                    error="This brand has products and cannot be deleted."
-                )
-
-            cur.close()
-
-        finally:
-            if conn is not None:
-                conn.close()
+            cur.execute("DELETE FROM brands WHERE id = %s", (brand_id,))
+            conn.commit()
+        except psycopg.errors.ForeignKeyViolation:
+            conn.rollback()
+            return render_template(
+                "delete_brand_confirm.html",
+                brand=brand,
+                error="This brand has products and cannot be deleted."
+            )
 
         return redirect(url_for("brands"))
 
     # GET: no selection -> show picker
     if brand_id is None:
 
-        conn = psycopg.connect(get_connection_string())
+        conn = get_db()
         cur = conn.cursor()
 
         cur.execute("""
@@ -654,20 +597,14 @@ def delete_brand():
 
         brands = cur.fetchall()
 
-        cur.close()
-        conn.close()
-
         return render_template("delete_brand_select.html", brands=brands)
 
     # GET: brand selected -> show confirmation
-    conn = psycopg.connect(get_connection_string())
+    conn = get_db()
     cur = conn.cursor()
 
     cur.execute("SELECT id, name FROM brands WHERE id = %s", (brand_id,))
     brand = cur.fetchone()
-
-    cur.close()
-    conn.close()
 
     if brand is None:
         return "Brand not found", 404
