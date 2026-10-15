@@ -11,6 +11,12 @@ Add Product
 
     <h1>Add Product</h1>
 
+    {% if error %}
+    <div class="error-message">
+        {{ error }}
+    </div>
+    {% endif %}
+
     <form method="POST">
 
         <div class="form-group">
@@ -31,7 +37,10 @@ Add Product
 
                 {% for brand in brands %}
 
-                <option value="{{ brand[0] }}">
+                <option
+                    value="{{ brand[0] }}"
+                    {% if form.brand_id == brand[0] %}selected{% endif %}
+                >
                     {{ brand[1] }}
                 </option>
 
@@ -52,6 +61,7 @@ Add Product
                 type="text"
                 id="name"
                 name="name"
+                value="{{ form.name }}"
                 required
             >
 
@@ -68,6 +78,7 @@ Add Product
                 type="number"
                 id="price"
                 name="price"
+                value="{{ form.price }}"
                 step="0.01"
                 min="0"
                 required
@@ -86,6 +97,7 @@ Add Product
                 type="number"
                 id="quantity"
                 name="quantity"
+                value="{{ form.quantity }}"
                 min="0"
                 required
             >

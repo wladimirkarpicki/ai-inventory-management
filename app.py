@@ -1,5 +1,13 @@
+import os
+
+from decimal import (
+    Decimal,
+    InvalidOperation
+)
+
 from flask import (
     Flask,
+    g,
     render_template,
     request,
     redirect,
@@ -14,6 +22,43 @@ from database import get_connection_string
 app = Flask(__name__)
 
 PAGE_SIZE = 5
+
+
+def get_db():
+    """
+    One PostgreSQL connection per request, closed automatically
+    when the request ends.
+    """
+
+    if "db" not in g:
+        g.db = psycopg.connect(get_connection_string())
+
+    return g.db
+
+
+@app.teardown_appcontext
+def close_db(exc):
+    """
+    Close the request-scoped DB connection, if one was opened.
+    """
+
+    db = g.pop("db", None)
+
+    if db is not None:
+        db.close()
+
+
+@app.errorhandler(psycopg.OperationalError)
+def db_unavailable(exc):
+    """
+    Show a friendly page instead of a traceback when the
+    database cannot be reached.
+    """
+
+    return render_template(
+        "error.html",
+        message="Database unavailable. Please check that PostgreSQL is running and try again."
+    ), 503
 
 
 @app.route("/")
@@ -35,7 +80,7 @@ def products():
 
     offset = (page - 1) * PAGE_SIZE
 
-    conn = psycopg.connect(get_connection_string())
+    conn = get_db()
     cur = conn.cursor()
 
     cur.execute("""
@@ -62,9 +107,6 @@ def products():
 
     total_products = cur.fetchone()[0]
 
-    cur.close()
-    conn.close()
-
     total_pages = (
         (total_products - 1) // PAGE_SIZE
     ) + 1 if total_products else 1
@@ -80,39 +122,68 @@ def products():
 @app.route("/products/add", methods=["GET", "POST"])
 def add_product():
 
-    conn = psycopg.connect(get_connection_string())
+    error = None
+    form = {
+        "name": "",
+        "price": "",
+        "quantity": "",
+        "brand_id": None
+    }
+
+    conn = get_db()
     cur = conn.cursor()
 
     if request.method == "POST":
 
-        brand_id = request.form["brand_id"]
-        product_name = request.form["name"]
-        price = request.form["price"]
-        quantity = request.form["quantity"]
+        form["name"] = request.form.get("name", "").strip()
+        form["price"] = request.form.get("price", "").strip()
+        form["quantity"] = request.form.get("quantity", "").strip()
 
-        cur.execute("""
-            INSERT INTO products
-                (
-                    brand_id,
-                    name,
-                    price,
-                    quantity
-                )
-            VALUES
-                (%s, %s, %s, %s)
-        """, (
-            brand_id,
-            product_name,
-            price,
-            quantity
-        ))
+        raw_brand_id = request.form.get("brand_id", "")
 
-        conn.commit()
+        if raw_brand_id.isdigit():
+            form["brand_id"] = int(raw_brand_id)
 
-        cur.close()
-        conn.close()
+            cur.execute(
+                "SELECT 1 FROM brands WHERE id = %s",
+                (form["brand_id"],)
+            )
 
-        return redirect(url_for("products"))
+            if cur.fetchone() is None:
+                error = "Selected brand does not exist."
+        else:
+            error = "Please select a brand."
+
+        if error is None:
+            error = validate_product_name(form["name"])
+
+        if error is None:
+            error, price = parse_price(form["price"])
+
+        if error is None:
+            error, quantity = parse_quantity(form["quantity"])
+
+        if error is None:
+            cur.execute("""
+                INSERT INTO products
+                    (
+                        brand_id,
+                        name,
+                        price,
+                        quantity
+                    )
+                VALUES
+                    (%s, %s, %s, %s)
+            """, (
+                form["brand_id"],
+                form["name"],
+                price,
+                quantity
+            ))
+
+            conn.commit()
+
+            return redirect(url_for("products"))
 
     cur.execute("""
         SELECT
@@ -124,12 +195,11 @@ def add_product():
 
     brands = cur.fetchall()
 
-    cur.close()
-    conn.close()
-
     return render_template(
         "add_product.html",
-        brands=brands
+        brands=brands,
+        error=error,
+        form=form
     )
 
 
@@ -146,36 +216,61 @@ def edit_product():
         type=int
     )
 
-    conn = psycopg.connect(get_connection_string())
+    conn = get_db()
     cur = conn.cursor()
 
     # POST: save changes
     if request.method == "POST":
 
-        product_name = request.form["name"]
-        price = request.form["price"]
-        quantity = request.form["quantity"]
+        if product_id is None:
+            return "Product ID is required", 400
 
-        cur.execute("""
-            UPDATE products
-            SET
-                name = %s,
-                price = %s,
-                quantity = %s
-            WHERE id = %s
-        """, (
-            product_name,
-            price,
-            quantity,
-            product_id
-        ))
+        cur.execute(
+            "SELECT id FROM products WHERE id = %s",
+            (product_id,)
+        )
 
-        conn.commit()
+        if cur.fetchone() is None:
+            return "Product not found", 404
 
-        cur.close()
-        conn.close()
+        name = request.form.get("name", "").strip()
+        raw_price = request.form.get("price", "").strip()
+        raw_quantity = request.form.get("quantity", "").strip()
 
-        return redirect(url_for("products"))
+        error = validate_product_name(name)
+
+        if error is None:
+            error, price = parse_price(raw_price)
+
+        if error is None:
+            error, quantity = parse_quantity(raw_quantity)
+
+        if error is None:
+            cur.execute("""
+                UPDATE products
+                SET
+                    name = %s,
+                    price = %s,
+                    quantity = %s
+                WHERE id = %s
+            """, (
+                name,
+                price,
+                quantity,
+                product_id
+            ))
+
+            conn.commit()
+
+            return redirect(url_for("products"))
+
+        product = (product_id, None, name, raw_price, raw_quantity)
+
+        return render_template(
+            "edit_product.html",
+            product=product,
+            error=error
+        )
 
     # GET: no selection yet → show brands
     if brand_id is None and product_id is None:
@@ -189,9 +284,6 @@ def edit_product():
         """)
 
         brands = cur.fetchall()
-
-        cur.close()
-        conn.close()
 
         return render_template(
             "edit_product_brand.html",
@@ -214,9 +306,6 @@ def edit_product():
 
         products = cur.fetchall()
 
-        cur.close()
-        conn.close()
-
         return render_template(
             "edit_product_select.html",
             products=products,
@@ -236,9 +325,6 @@ def edit_product():
     """, (product_id,))
 
     product = cur.fetchone()
-
-    cur.close()
-    conn.close()
 
     if product is None:
         return "Product not found", 404
@@ -263,7 +349,7 @@ def brands():
 
     offset = (page - 1) * PAGE_SIZE
 
-    conn = psycopg.connect(get_connection_string())
+    conn = get_db()
     cur = conn.cursor()
 
     cur.execute("""
@@ -288,9 +374,6 @@ def brands():
     """)
 
     total_brands = cur.fetchone()[0]
-
-    cur.close()
-    conn.close()
 
     total_pages = (
         (total_brands - 1) // PAGE_SIZE
@@ -317,16 +400,13 @@ def delete_product():
         type=int
     )
 
-    conn = psycopg.connect(get_connection_string())
+    conn = get_db()
     cur = conn.cursor()
 
     # POST: delete the selected product
     if request.method == "POST":
 
         if product_id is None:
-            cur.close()
-            conn.close()
-
             return "Product ID is required", 400
 
         cur.execute("""
@@ -336,15 +416,10 @@ def delete_product():
 
         if cur.rowcount == 0:
             conn.rollback()
-            cur.close()
-            conn.close()
 
             return "Product not found", 404
 
         conn.commit()
-
-        cur.close()
-        conn.close()
 
         return redirect(url_for("products"))
 
@@ -360,9 +435,6 @@ def delete_product():
         """)
 
         brands = cur.fetchall()
-
-        cur.close()
-        conn.close()
 
         return render_template(
             "delete_product_brand.html",
@@ -385,9 +457,6 @@ def delete_product():
 
         products = cur.fetchall()
 
-        cur.close()
-        conn.close()
-
         return render_template(
             "delete_product_select.html",
             products=products,
@@ -408,9 +477,6 @@ def delete_product():
 
     product = cur.fetchone()
 
-    cur.close()
-    conn.close()
-
     if product is None:
         return "Product not found", 404
 
@@ -420,6 +486,50 @@ def delete_product():
     )
 
 
+def validate_product_name(name):
+    """
+    Validate a product name.
+    Returns an error message string, or None when the name is valid.
+    """
+
+    if not name:
+        return "Product name is required."
+
+    return None
+
+
+def parse_price(raw):
+    """
+    Parse and validate a price.
+    Returns (error, price); price is a Decimal when error is None.
+    """
+
+    try:
+        price = Decimal(raw)
+    except (InvalidOperation, ValueError):
+        return "Price must be a number.", None
+
+    if not price.is_finite() or price < 0:
+        return "Price must be a non-negative number.", None
+
+    return None, price
+
+
+def parse_quantity(raw):
+    """
+    Parse and validate a quantity.
+    Returns (error, quantity); quantity is an int when error is None.
+    """
+
+    try:
+        quantity = int(raw)
+    except (ValueError, TypeError):
+        return "Quantity must be an integer.", None
+
+    if quantity < 0:
+        return "Quantity must be a non-negative integer.", None
+
+    return None, quantity
 
 
 def validate_brand_name(name):
@@ -449,10 +559,9 @@ def add_brand():
         error = validate_brand_name(name)
 
         if error is None:
-            conn = None
 
             try:
-                conn = psycopg.connect(get_connection_string())
+                conn = get_db()
                 cur = conn.cursor()
 
                 cur.execute(
@@ -470,14 +579,8 @@ def add_brand():
 
                     conn.commit()
 
-                cur.close()
-
             except psycopg.errors.UniqueViolation:
                 error = f'A brand named "{name}" already exists.'
-
-            finally:
-                if conn is not None:
-                    conn.close()
 
         if error is None:
             return redirect(url_for("brands"))
@@ -499,12 +602,9 @@ def edit_brand():
         name = request.form.get("name", "").strip()
         error = validate_brand_name(name)
         success = False
-        brand = None
-
-        conn = None
 
         try:
-            conn = psycopg.connect(get_connection_string())
+            conn = get_db()
             cur = conn.cursor()
 
             cur.execute(
@@ -515,8 +615,6 @@ def edit_brand():
             row = cur.fetchone()
 
             if row is None:
-                cur.close()
-                conn.close()
                 return "Brand not found", 404
 
             if error is None:
@@ -537,14 +635,8 @@ def edit_brand():
                 conn.commit()
                 success = True
 
-            cur.close()
-
         except psycopg.errors.UniqueViolation:
             error = f'A brand named "{name}" already exists.'
-
-        finally:
-            if conn is not None:
-                conn.close()
 
         if success:
             return redirect(url_for("brands"))
@@ -557,7 +649,7 @@ def edit_brand():
     # GET: no selection yet -> show brand picker
     if brand_id is None:
 
-        conn = psycopg.connect(get_connection_string())
+        conn = get_db()
         cur = conn.cursor()
 
         cur.execute("""
@@ -570,13 +662,10 @@ def edit_brand():
 
         brands = cur.fetchall()
 
-        cur.close()
-        conn.close()
-
         return render_template("edit_brand_select.html", brands=brands)
 
     # GET: brand selected -> show edit form
-    conn = psycopg.connect(get_connection_string())
+    conn = get_db()
     cur = conn.cursor()
 
     cur.execute(
@@ -586,15 +675,10 @@ def edit_brand():
 
     brand = cur.fetchone()
 
-    cur.close()
-    conn.close()
-
     if brand is None:
         return "Brand not found", 404
 
     return render_template("edit_brand.html", brand=brand, error="")
-
-
 
 
 @app.route("/brands/delete", methods=["GET", "POST"])
@@ -605,45 +689,35 @@ def delete_brand():
     # POST: delete brand
     if request.method == "POST":
 
-        conn = None
+        if brand_id is None:
+            return "Brand ID is required", 400
+
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id, name FROM brands WHERE id = %s", (brand_id,))
+        brand = cur.fetchone()
+
+        if brand is None:
+            return "Brand not found", 404
 
         try:
-            conn = psycopg.connect(get_connection_string())
-            cur = conn.cursor()
-
-            cur.execute("SELECT id, name FROM brands WHERE id = %s", (brand_id,))
-            brand = cur.fetchone()
-
-            if brand is None:
-                cur.close()
-                conn.close()
-                return "Brand not found", 404
-
-            try:
-                cur.execute("DELETE FROM brands WHERE id = %s", (brand_id,))
-                conn.commit()
-            except psycopg.errors.ForeignKeyViolation:
-                conn.rollback()
-                cur.close()
-                conn.close()
-                return render_template(
-                    "delete_brand_confirm.html",
-                    brand=brand,
-                    error="This brand has products and cannot be deleted."
-                )
-
-            cur.close()
-
-        finally:
-            if conn is not None:
-                conn.close()
+            cur.execute("DELETE FROM brands WHERE id = %s", (brand_id,))
+            conn.commit()
+        except psycopg.errors.ForeignKeyViolation:
+            conn.rollback()
+            return render_template(
+                "delete_brand_confirm.html",
+                brand=brand,
+                error="This brand has products and cannot be deleted."
+            )
 
         return redirect(url_for("brands"))
 
     # GET: no selection -> show picker
     if brand_id is None:
 
-        conn = psycopg.connect(get_connection_string())
+        conn = get_db()
         cur = conn.cursor()
 
         cur.execute("""
@@ -654,20 +728,14 @@ def delete_brand():
 
         brands = cur.fetchall()
 
-        cur.close()
-        conn.close()
-
         return render_template("delete_brand_select.html", brands=brands)
 
     # GET: brand selected -> show confirmation
-    conn = psycopg.connect(get_connection_string())
+    conn = get_db()
     cur = conn.cursor()
 
     cur.execute("SELECT id, name FROM brands WHERE id = %s", (brand_id,))
     brand = cur.fetchone()
-
-    cur.close()
-    conn.close()
 
     if brand is None:
         return "Brand not found", 404
@@ -676,4 +744,5 @@ def delete_brand():
 
 
 if __name__ == "__main__":
-    app.run()
+    app.run(debug=os.getenv("FLASK_DEBUG") == "1")
+
