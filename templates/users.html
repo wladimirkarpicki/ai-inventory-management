@@ -23,6 +23,7 @@ Users
             <th>ID</th>
             <th>Username</th>
             <th>Role</th>
+            <th>Actions</th>
         </tr>
     </thead>
 
@@ -36,12 +37,15 @@ Users
                 {{ account[1] }}{% if account[0] == current_id %} (you){% endif %}
             </td>
             <td>{{ account[2] }}</td>
+            <td>
+                <a href="{{ url_for('edit_user', user_id=account[0]) }}">Edit</a>
+            </td>
         </tr>
 
         {% else %}
 
         <tr>
-            <td colspan="3">
+            <td colspan="4">
                 No users found.
             </td>
         </tr>
