@@ -23,6 +23,14 @@ app = Flask(__name__)
 
 PAGE_SIZE = 5
 
+SORT_COLUMNS = {
+    "id": "p.id",
+    "brand": "b.name",
+    "name": "p.name",
+    "price": "p.price",
+    "quantity": "p.quantity"
+}
+
 
 def get_db():
     """
@@ -116,6 +124,19 @@ def products():
 
     search = request.args.get("search", "").strip()
 
+    sort = request.args.get("sort", "").strip()
+    order = request.args.get("order", "asc")
+
+    if order not in ("asc", "desc"):
+        order = "asc"
+
+    if sort in SORT_COLUMNS:
+        order_sql = "DESC" if order == "desc" else "ASC"
+        order_by = f"ORDER BY {SORT_COLUMNS[sort]} {order_sql}, p.id ASC"
+    else:
+        sort = ""
+        order_by = "ORDER BY b.name, p.name, p.id ASC"
+
     offset = (page - 1) * PAGE_SIZE
 
     conn = get_db()
@@ -125,7 +146,7 @@ def products():
         pattern = f"%{escape_like(search)}%"
         query_args = (pattern, pattern)
 
-        cur.execute("""
+        cur.execute(f"""
             SELECT
                 p.id,
                 b.name,
@@ -137,7 +158,7 @@ def products():
                 ON p.brand_id = b.id
             WHERE p.name ILIKE %s ESCAPE '\\'
                 OR b.name ILIKE %s ESCAPE '\\'
-            ORDER BY b.name, p.name
+            {order_by}
             LIMIT %s
             OFFSET %s
         """, query_args + (PAGE_SIZE, offset))
@@ -156,7 +177,7 @@ def products():
         total_products = cur.fetchone()[0]
 
     else:
-        cur.execute("""
+        cur.execute(f"""
             SELECT
                 p.id,
                 b.name,
@@ -166,7 +187,7 @@ def products():
             FROM products p
             JOIN brands b
                 ON p.brand_id = b.id
-            ORDER BY b.name, p.name
+            {order_by}
             LIMIT %s
             OFFSET %s
         """, (PAGE_SIZE, offset))
@@ -189,7 +210,9 @@ def products():
         products=products,
         page=page,
         total_pages=total_pages,
-        search=search
+        search=search,
+        sort=sort,
+        order=order
     )
 
 
