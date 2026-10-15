@@ -4,7 +4,9 @@ A web-based inventory management application built with Python, Flask, and Postg
 
 ## Features
 
-- View all products with pagination
+- User authentication — all pages require sign-in, with a first-run setup for the initial account
+- Dashboard with live inventory statistics
+- View, search, and sort products; CSV export of the inventory
 - Add, edit, and delete products (brand, name, price, quantity)
 - Manage brands: add, edit, and delete — brands that still have products cannot be deleted
 - Two-step selection flows for editing and deleting (brand → product → form)
@@ -43,6 +45,13 @@ DATABASE_HOST=localhost
 DATABASE_NAME=your_database
 DATABASE_USER=your_username
 DATABASE_PASSWORD=your_password
+SECRET_KEY=your_secret_key
+```
+
+`SECRET_KEY` signs the session cookies and is required — generate one with:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
 Optionally add `FLASK_DEBUG=1` to enable Flask debug mode and auto-reload during development. Debug mode is off by default.
@@ -60,6 +69,10 @@ python app.py
 ```
 
 Then open http://127.0.0.1:5000 in your browser.
+
+## First Run
+
+On first launch the app has no users yet, so every page redirects to **/setup**. Create the initial admin account there — the setup page closes itself afterwards, and everyone must sign in at **/login**.
 
 ## Project Structure
 

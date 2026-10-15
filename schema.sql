@@ -17,3 +17,9 @@ CREATE TABLE IF NOT EXISTS products (
     price NUMERIC NOT NULL,
     quantity INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(100) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL
+);
