@@ -46,6 +46,19 @@ def close_db(exc):
         db.close()
 
 
+@app.errorhandler(psycopg.OperationalError)
+def db_unavailable(exc):
+    """
+    Show a friendly page instead of a traceback when the
+    database cannot be reached.
+    """
+
+    return render_template(
+        "error.html",
+        message="Database unavailable. Please check that PostgreSQL is running and try again."
+    ), 503
+
+
 @app.route("/")
 def home():
     return render_template("index.html")
