@@ -1,3 +1,5 @@
+import csv
+import io
 import os
 
 from decimal import (
@@ -7,6 +9,7 @@ from decimal import (
 
 from flask import (
     Flask,
+    Response,
     g,
     render_template,
     request,
@@ -213,6 +216,64 @@ def products():
         search=search,
         sort=sort,
         order=order
+    )
+
+
+@app.route("/products/export")
+def export_products():
+
+    search = request.args.get("search", "").strip()
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    if search:
+        pattern = f"%{escape_like(search)}%"
+        query_args = (pattern, pattern)
+
+        cur.execute("""
+            SELECT
+                p.id,
+                b.name,
+                p.name,
+                p.price,
+                p.quantity
+            FROM products p
+            JOIN brands b
+                ON p.brand_id = b.id
+            WHERE p.name ILIKE %s ESCAPE '\\'
+                OR b.name ILIKE %s ESCAPE '\\'
+            ORDER BY p.id
+        """, query_args)
+
+    else:
+        cur.execute("""
+            SELECT
+                p.id,
+                b.name,
+                p.name,
+                p.price,
+                p.quantity
+            FROM products p
+            JOIN brands b
+                ON p.brand_id = b.id
+            ORDER BY p.id
+        """)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    writer.writerow(["ID", "Brand", "Product", "Price", "Quantity"])
+
+    for row in cur.fetchall():
+        writer.writerow([row[0], row[1], row[2], str(row[3]), row[4]])
+
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": "attachment; filename=products.csv"
+        }
     )
 
 
