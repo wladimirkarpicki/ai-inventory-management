@@ -50,6 +50,13 @@ Products
         Search
     </button>
 
+    <a
+        href="{{ url_for('export_products', search=search or none) }}"
+        class="btn btn-secondary"
+    >
+        Export CSV
+    </a>
+
     {% if search %}
 
     <a
