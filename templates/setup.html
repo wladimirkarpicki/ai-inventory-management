@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}
+Setup
+{% endblock %}
+
+
+{% block content %}
+
+<div class="form-container">
+
+    <h1>Create admin account</h1>
+
+    <p>
+        This page is only available on first run, while no user
+        exists yet. Once the account is created, setup closes
+        and everyone must sign in.
+    </p>
+
+    {% if error %}
+    <div class="error-message">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="POST">
+
+        <div class="form-group">
+
+            <label for="username">
+                Username
+            </label>
+
+            <input
+                type="text"
+                id="username"
+                name="username"
+                value="{{ form.username }}"
+                required
+            >
+
+        </div>
+
+
+        <div class="form-group">
+
+            <label for="password">
+                Password (at least 8 characters)
+            </label>
+
+            <input
+                type="password"
+                id="password"
+                name="password"
+                minlength="8"
+                required
+            >
+
+        </div>
+
+
+        <div class="form-group">
+
+            <label for="confirm">
+                Confirm password
+            </label>
+
+            <input
+                type="password"
+                id="confirm"
+                name="confirm"
+                minlength="8"
+                required
+            >
+
+        </div>
+
+
+        <div class="form-actions">
+
+            <button
+                type="submit"
+                class="btn btn-primary"
+            >
+                Create account
+            </button>
+
+        </div>
+
+    </form>
+
+</div>
+
+{% endblock %}
