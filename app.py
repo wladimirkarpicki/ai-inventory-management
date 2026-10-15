@@ -1,3 +1,8 @@
+from decimal import (
+    Decimal,
+    InvalidOperation
+)
+
 from flask import (
     Flask,
     g,
@@ -102,36 +107,68 @@ def products():
 @app.route("/products/add", methods=["GET", "POST"])
 def add_product():
 
+    error = None
+    form = {
+        "name": "",
+        "price": "",
+        "quantity": "",
+        "brand_id": None
+    }
+
     conn = get_db()
     cur = conn.cursor()
 
     if request.method == "POST":
 
-        brand_id = request.form["brand_id"]
-        product_name = request.form["name"]
-        price = request.form["price"]
-        quantity = request.form["quantity"]
+        form["name"] = request.form.get("name", "").strip()
+        form["price"] = request.form.get("price", "").strip()
+        form["quantity"] = request.form.get("quantity", "").strip()
 
-        cur.execute("""
-            INSERT INTO products
-                (
-                    brand_id,
-                    name,
-                    price,
-                    quantity
-                )
-            VALUES
-                (%s, %s, %s, %s)
-        """, (
-            brand_id,
-            product_name,
-            price,
-            quantity
-        ))
+        raw_brand_id = request.form.get("brand_id", "")
 
-        conn.commit()
+        if raw_brand_id.isdigit():
+            form["brand_id"] = int(raw_brand_id)
 
-        return redirect(url_for("products"))
+            cur.execute(
+                "SELECT 1 FROM brands WHERE id = %s",
+                (form["brand_id"],)
+            )
+
+            if cur.fetchone() is None:
+                error = "Selected brand does not exist."
+        else:
+            error = "Please select a brand."
+
+        if error is None:
+            error = validate_product_name(form["name"])
+
+        if error is None:
+            error, price = parse_price(form["price"])
+
+        if error is None:
+            error, quantity = parse_quantity(form["quantity"])
+
+        if error is None:
+            cur.execute("""
+                INSERT INTO products
+                    (
+                        brand_id,
+                        name,
+                        price,
+                        quantity
+                    )
+                VALUES
+                    (%s, %s, %s, %s)
+            """, (
+                form["brand_id"],
+                form["name"],
+                price,
+                quantity
+            ))
+
+            conn.commit()
+
+            return redirect(url_for("products"))
 
     cur.execute("""
         SELECT
@@ -145,7 +182,9 @@ def add_product():
 
     return render_template(
         "add_product.html",
-        brands=brands
+        brands=brands,
+        error=error,
+        form=form
     )
 
 
@@ -168,27 +207,55 @@ def edit_product():
     # POST: save changes
     if request.method == "POST":
 
-        product_name = request.form["name"]
-        price = request.form["price"]
-        quantity = request.form["quantity"]
+        if product_id is None:
+            return "Product ID is required", 400
 
-        cur.execute("""
-            UPDATE products
-            SET
-                name = %s,
-                price = %s,
-                quantity = %s
-            WHERE id = %s
-        """, (
-            product_name,
-            price,
-            quantity,
-            product_id
-        ))
+        cur.execute(
+            "SELECT id FROM products WHERE id = %s",
+            (product_id,)
+        )
 
-        conn.commit()
+        if cur.fetchone() is None:
+            return "Product not found", 404
 
-        return redirect(url_for("products"))
+        name = request.form.get("name", "").strip()
+        raw_price = request.form.get("price", "").strip()
+        raw_quantity = request.form.get("quantity", "").strip()
+
+        error = validate_product_name(name)
+
+        if error is None:
+            error, price = parse_price(raw_price)
+
+        if error is None:
+            error, quantity = parse_quantity(raw_quantity)
+
+        if error is None:
+            cur.execute("""
+                UPDATE products
+                SET
+                    name = %s,
+                    price = %s,
+                    quantity = %s
+                WHERE id = %s
+            """, (
+                name,
+                price,
+                quantity,
+                product_id
+            ))
+
+            conn.commit()
+
+            return redirect(url_for("products"))
+
+        product = (product_id, None, name, raw_price, raw_quantity)
+
+        return render_template(
+            "edit_product.html",
+            product=product,
+            error=error
+        )
 
     # GET: no selection yet → show brands
     if brand_id is None and product_id is None:
@@ -404,6 +471,52 @@ def delete_product():
     )
 
 
+def validate_product_name(name):
+    """
+    Validate a product name.
+    Returns an error message string, or None when the name is valid.
+    """
+
+    if not name:
+        return "Product name is required."
+
+    return None
+
+
+def parse_price(raw):
+    """
+    Parse and validate a price.
+    Returns (error, price); price is a Decimal when error is None.
+    """
+
+    try:
+        price = Decimal(raw)
+    except (InvalidOperation, ValueError):
+        return "Price must be a number.", None
+
+    if not price.is_finite() or price < 0:
+        return "Price must be a non-negative number.", None
+
+    return None, price
+
+
+def parse_quantity(raw):
+    """
+    Parse and validate a quantity.
+    Returns (error, quantity); quantity is an int when error is None.
+    """
+
+    try:
+        quantity = int(raw)
+    except (ValueError, TypeError):
+        return "Quantity must be an integer.", None
+
+    if quantity < 0:
+        return "Quantity must be a non-negative integer.", None
+
+    return None, quantity
+
+
 def validate_brand_name(name):
     """
     Validate a brand name for add / edit operations.
@@ -560,6 +673,9 @@ def delete_brand():
 
     # POST: delete brand
     if request.method == "POST":
+
+        if brand_id is None:
+            return "Brand ID is required", 400
 
         conn = get_db()
         cur = conn.cursor()
