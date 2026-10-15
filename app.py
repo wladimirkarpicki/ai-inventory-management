@@ -10,6 +10,7 @@ from decimal import (
 from flask import (
     Flask,
     Response,
+    abort,
     g,
     render_template,
     request,
@@ -93,24 +94,39 @@ def require_login():
     """
     Every page requires a logged-in user, except the auth
     pages themselves. A fresh installation with no users
-    yet is guided to the setup page instead.
+    yet is guided to the setup page instead. User
+    management pages additionally require the admin role.
     """
 
     if request.endpoint is None or request.endpoint in ("static", "login", "setup"):
         return None
 
-    if "user_id" in session:
-        return None
+    if "user_id" not in session:
+        conn = get_db()
+        cur = conn.cursor()
 
-    conn = get_db()
-    cur = conn.cursor()
+        cur.execute("SELECT 1 FROM users LIMIT 1")
 
-    cur.execute("SELECT 1 FROM users LIMIT 1")
+        if cur.fetchone() is None:
+            return redirect(url_for("setup"))
 
-    if cur.fetchone() is None:
-        return redirect(url_for("setup"))
+        return redirect(url_for("login"))
 
-    return redirect(url_for("login"))
+    if request.endpoint in ("users", "add_user"):
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute(
+            "SELECT role FROM users WHERE id = %s",
+            (session["user_id"],)
+        )
+
+        row = cur.fetchone()
+
+        if row is None or row[0] != "admin":
+            abort(403)
+
+    return None
 
 
 @app.context_processor
@@ -128,13 +144,16 @@ def inject_current_user():
     cur = conn.cursor()
 
     cur.execute(
-        "SELECT username FROM users WHERE id = %s",
+        "SELECT username, role FROM users WHERE id = %s",
         (user_id,)
     )
 
     row = cur.fetchone()
 
-    return {"current_user": row[0] if row else None}
+    return {
+        "current_user": row[0] if row else None,
+        "current_user_role": row[1] if row else None
+    }
 
 
 @app.route("/setup", methods=["GET", "POST"])
@@ -173,7 +192,10 @@ def setup():
             error = "Passwords do not match."
         else:
             cur.execute(
-                "INSERT INTO users (username, password_hash) VALUES (%s, %s)",
+                """
+                    INSERT INTO users (username, password_hash, role)
+                    VALUES (%s, %s, 'admin')
+                """,
                 (username, generate_password_hash(password))
             )
 
@@ -229,6 +251,87 @@ def logout():
     session.pop("user_id", None)
 
     return redirect(url_for("login"))
+
+
+@app.route("/users")
+def users():
+    """
+    Admin-only list of user accounts.
+    """
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT
+            id,
+            username,
+            role
+        FROM users
+        ORDER BY id
+    """)
+
+    user_accounts = cur.fetchall()
+
+    return render_template(
+        "users.html",
+        users=user_accounts,
+        current_id=session.get("user_id")
+    )
+
+
+@app.route("/users/add", methods=["GET", "POST"])
+def add_user():
+    """
+    Admin-only creation of new user accounts.
+    """
+
+    error = None
+    form = {"username": "", "role": "user"}
+
+    if request.method == "POST":
+
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        confirm = request.form.get("confirm", "")
+        role = request.form.get("role", "user")
+
+        form["username"] = username
+        form["role"] = role
+
+        if not username:
+            error = "Username is required."
+        elif len(username) > 100:
+            error = "Username must be 100 characters or fewer."
+        elif len(password) < 8:
+            error = "Password must be at least 8 characters."
+        elif password != confirm:
+            error = "Passwords do not match."
+        elif role not in ("user", "admin"):
+            error = "Invalid role."
+        else:
+            conn = get_db()
+            cur = conn.cursor()
+
+            try:
+                cur.execute(
+                    """
+                        INSERT INTO users (username, password_hash, role)
+                        VALUES (%s, %s, %s)
+                    """,
+                    (username, generate_password_hash(password), role)
+                )
+
+                conn.commit()
+
+                return redirect(url_for("users"))
+
+            except psycopg.errors.UniqueViolation:
+                conn.rollback()
+
+                error = f'A user named "{username}" already exists.'
+
+    return render_template("add_user.html", error=error, form=form)
 
 
 @app.route("/")

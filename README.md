@@ -4,7 +4,8 @@ A web-based inventory management application built with Python, Flask, and Postg
 
 ## Features
 
-- User authentication — all pages require sign-in, with a first-run setup for the initial account
+- User authentication — all pages require sign-in, with a first-run setup for the initial admin account
+- Admin-only user management: create additional users (regular or admin) from the Users page
 - Dashboard with live inventory statistics
 - View, search, and sort products; CSV export of the inventory
 - Add, edit, and delete products (brand, name, price, quantity)
@@ -72,7 +73,11 @@ Then open http://127.0.0.1:5000 in your browser.
 
 ## First Run
 
-On first launch the app has no users yet, so every page redirects to **/setup**. Create the initial admin account there — the setup page closes itself afterwards, and everyone must sign in at **/login**.
+On first launch the app has no users yet, so every page redirects to **/setup**. Create the initial account there — it becomes the **admin**. The setup page closes itself afterwards, and everyone must sign in at **/login**.
+
+## User Management
+
+The admin can create additional user accounts from the **Users** page (visible in the navigation only for admins): each new user gets a username, a password of at least 8 characters, and a role — regular **User** or **Admin**. Regular users can work with products and brands but cannot manage accounts.
 
 ## Project Structure
 

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}
+Users
+{% endblock %}
+
+
+{% block content %}
+
+<h1>Users</h1>
+
+<a
+    href="{{ url_for('add_user') }}"
+    class="btn btn-primary add-product-button"
+>
+    + Add User
+</a>
+
+<table>
+
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Username</th>
+            <th>Role</th>
+        </tr>
+    </thead>
+
+    <tbody>
+
+        {% for account in users %}
+
+        <tr>
+            <td>{{ account[0] }}</td>
+            <td>
+                {{ account[1] }}{% if account[0] == current_id %} (you){% endif %}
+            </td>
+            <td>{{ account[2] }}</td>
+        </tr>
+
+        {% else %}
+
+        <tr>
+            <td colspan="3">
+                No users found.
+            </td>
+        </tr>
+
+        {% endfor %}
+
+    </tbody>
+
+</table>
+
+{% endblock %}
