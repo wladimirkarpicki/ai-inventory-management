@@ -171,6 +171,8 @@
         nav {
             background-color: #222;
             padding: 15px 30px;
+            display: flex;
+            align-items: center;
         }
 
         nav a {
@@ -182,6 +184,13 @@
 
         nav a:hover {
             text-decoration: underline;
+        }
+
+        .nav-user {
+            margin-left: auto;
+            margin-right: 15px;
+            color: #aaa;
+            font-size: 14px;
         }
 
         main {
@@ -233,6 +242,11 @@
         <a href="/">Dashboard</a>
         <a href="/products">Products</a>
         <a href="/brands">Brands</a>
+
+        {% if current_user %}
+        <span class="nav-user">Logged in as {{ current_user }}</span>
+        <a href="{{ url_for('logout') }}">Logout</a>
+        {% endif %}
     </nav>
 
     <main>
