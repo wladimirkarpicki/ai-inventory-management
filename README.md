@@ -1,44 +1,42 @@
 # Inventory Management System
 
-A Python-based inventory management application with a Flask web interface, CLI, and PostgreSQL database.
+A web-based inventory management application built with Python, Flask, and PostgreSQL.
 
 ## Features
 
-- View all products
-- Search products
-- Add new products
-- Update existing products
-- Delete products
-- View brands
-- Product and brand pagination
-- Product selection by brand
-- PostgreSQL database integration
-- CLI and Flask web interface
+- View all products with pagination
+- Add, edit, and delete products (brand, name, price, quantity)
+- Manage brands: add, edit, and delete — brands that still have products cannot be deleted
+- Two-step selection flows for editing and deleting (brand → product → form)
+- Server-side form validation with friendly error messages
+- Friendly error page when the database is unavailable
+- One PostgreSQL connection per request
 
 ## Technologies
 
 - Python 3
 - Flask
 - PostgreSQL
-- psycopg
+- psycopg 3
 - Jinja2
 - python-dotenv
 
 ## Installation
 
-Clone the repository:
+1. Clone the repository:
 
 ```bash
 git clone https://github.com/wladimirkarpicki/inventory-management-system.git
 cd inventory-management-system
 ```
 
-Install dependencies:
+2. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
+```
 
-Configure the PostgreSQL database in `.env`:
+3. Create a `.env` file in the project root:
 
 ```env
 DATABASE_HOST=localhost
@@ -47,16 +45,36 @@ DATABASE_USER=your_username
 DATABASE_PASSWORD=your_password
 ```
 
-### Run
+Optionally add `FLASK_DEBUG=1` to enable Flask debug mode and auto-reload during development. Debug mode is off by default.
 
-### CLI:
-python main.py
+4. Create the database tables:
+
+```sql
+CREATE TABLE brands (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE
+);
+
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR NOT NULL,
+    brand_id INTEGER NOT NULL REFERENCES brands (id),
+    price NUMERIC NOT NULL,
+    quantity INTEGER
+);
 ```
 
-Web application:
+## Run
 
 ```bash
 python app.py
 ```
 
-Then open the Flask application in your browser.
+Then open http://127.0.0.1:5000 in your browser.
+
+## Project Structure
+
+- `app.py` — Flask application with all routes
+- `database.py` — reads `.env` and builds the PostgreSQL connection string
+- `templates/` — Jinja2 templates
+- `requirements.txt` — Python dependencies

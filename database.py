@@ -1,6 +1,5 @@
 import os
 
-import psycopg
 from dotenv import load_dotenv
 
 
@@ -26,33 +25,3 @@ def get_connection_string():
     return (
         f"postgresql://{user}:{password}@{host}/{database}"
     )
-
-
-def connect_to_db():
-    """
-    Connect to the PostgreSQL database.
-
-    Used by the CLI application.
-
-    Returns:
-        tuple: (connection, cursor)
-    """
-
-    while True:
-        try:
-            connection_string = get_connection_string()
-
-            conn = psycopg.connect(connection_string)
-            cur = conn.cursor()
-
-            print("\n✅ Connected successfully!\n")
-
-            return conn, cur
-
-        except psycopg.OperationalError:
-            print(
-                "\n❌ Unable to connect to the database."
-                "\nPlease check your database configuration.\n"
-            )
-
-            break
