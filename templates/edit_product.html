@@ -11,6 +11,12 @@ Edit Product
 
     <h1>Edit Product</h1>
 
+    {% if error %}
+    <div class="error-message">
+        {{ error }}
+    </div>
+    {% endif %}
+
     <form
     method="POST"
     action="{{ url_for('edit_product', product_id=product[0]) }}"
