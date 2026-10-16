@@ -22,6 +22,12 @@ Add Brand
         action="{{ url_for('add_brand') }}"
     >
 
+        <input
+            type="hidden"
+            name="csrf_token"
+            value="{{ csrf_token }}"
+        >
+
         <div class="form-group">
 
             <label for="name">

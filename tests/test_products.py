@@ -1,3 +1,5 @@
+﻿from conftest import post
+
 def brand_id(db_connection, name):
     cur = db_connection.cursor()
     cur.execute("SELECT id FROM brands WHERE name = %s", (name,))
@@ -6,7 +8,7 @@ def brand_id(db_connection, name):
 
 def add_product(admin_client, db_connection, brand, name,
                 price="9.99", quantity="1"):
-    admin_client.post("/products/add", data={
+    post(admin_client, "/products/add", data={
         "brand_id": str(brand_id(db_connection, brand)),
         "name": name,
         "price": price,
@@ -28,9 +30,9 @@ def product_row(db_connection, product_id):
 
 
 def test_add_product_flow(admin_client, db_connection):
-    admin_client.post("/brands/add", data={"name": "Sony"})
+    post(admin_client, "/brands/add", data={"name": "Sony"})
 
-    response = admin_client.post("/products/add", data={
+    response = post(admin_client, "/products/add", data={
         "brand_id": str(brand_id(db_connection, "Sony")),
         "name": "Headphones",
         "price": "19.99",
@@ -52,7 +54,7 @@ def test_add_product_flow(admin_client, db_connection):
 
 
 def test_new_product_appears_in_list(admin_client, db_connection):
-    admin_client.post("/brands/add", data={"name": "ListCo"})
+    post(admin_client, "/brands/add", data={"name": "ListCo"})
     add_product(admin_client, db_connection, "ListCo", "Listed Item")
 
     page = admin_client.get("/products").data
@@ -62,7 +64,7 @@ def test_new_product_appears_in_list(admin_client, db_connection):
 
 
 def test_add_product_requires_brand(admin_client):
-    response = admin_client.post("/products/add", data={
+    response = post(admin_client, "/products/add", data={
         "brand_id": "",
         "name": "NoBrand",
         "price": "1",
@@ -74,7 +76,7 @@ def test_add_product_requires_brand(admin_client):
 
 
 def test_add_product_rejects_unknown_brand(admin_client):
-    response = admin_client.post("/products/add", data={
+    response = post(admin_client, "/products/add", data={
         "brand_id": "99999",
         "name": "GhostBrand",
         "price": "1",
@@ -86,9 +88,9 @@ def test_add_product_rejects_unknown_brand(admin_client):
 
 
 def test_add_product_requires_name(admin_client, db_connection):
-    admin_client.post("/brands/add", data={"name": "Nameless"})
+    post(admin_client, "/brands/add", data={"name": "Nameless"})
 
-    response = admin_client.post("/products/add", data={
+    response = post(admin_client, "/products/add", data={
         "brand_id": str(brand_id(db_connection, "Nameless")),
         "name": "",
         "price": "1",
@@ -100,10 +102,10 @@ def test_add_product_requires_name(admin_client, db_connection):
 
 
 def test_add_product_rejects_bad_price(admin_client, db_connection):
-    admin_client.post("/brands/add", data={"name": "Priceline"})
+    post(admin_client, "/brands/add", data={"name": "Priceline"})
     brand = str(brand_id(db_connection, "Priceline"))
 
-    response = admin_client.post("/products/add", data={
+    response = post(admin_client, "/products/add", data={
         "brand_id": brand,
         "name": "Priced",
         "price": "abc",
@@ -113,7 +115,7 @@ def test_add_product_rejects_bad_price(admin_client, db_connection):
     assert response.status_code == 200
     assert b"Price must be a number." in response.data
 
-    response = admin_client.post("/products/add", data={
+    response = post(admin_client, "/products/add", data={
         "brand_id": brand,
         "name": "Priced",
         "price": "-5",
@@ -125,10 +127,10 @@ def test_add_product_rejects_bad_price(admin_client, db_connection):
 
 
 def test_add_product_rejects_bad_quantity(admin_client, db_connection):
-    admin_client.post("/brands/add", data={"name": "Stockline"})
+    post(admin_client, "/brands/add", data={"name": "Stockline"})
     brand = str(brand_id(db_connection, "Stockline"))
 
-    response = admin_client.post("/products/add", data={
+    response = post(admin_client, "/products/add", data={
         "brand_id": brand,
         "name": "Quantified",
         "price": "1",
@@ -138,7 +140,7 @@ def test_add_product_rejects_bad_quantity(admin_client, db_connection):
     assert response.status_code == 200
     assert b"Quantity must be an integer." in response.data
 
-    response = admin_client.post("/products/add", data={
+    response = post(admin_client, "/products/add", data={
         "brand_id": brand,
         "name": "Quantified",
         "price": "1",
@@ -150,7 +152,7 @@ def test_add_product_rejects_bad_quantity(admin_client, db_connection):
 
 
 def test_edit_product_flow(admin_client, db_connection):
-    admin_client.post("/brands/add", data={"name": "EditCo"})
+    post(admin_client, "/brands/add", data={"name": "EditCo"})
     product_id = add_product(
         admin_client, db_connection, "EditCo", "OldName", "10.00", "4"
     )
@@ -160,7 +162,7 @@ def test_edit_product_flow(admin_client, db_connection):
         f"/products/edit?brand_id={brand_id(db_connection, 'EditCo')}"
     ).status_code == 200
 
-    response = admin_client.post(f"/products/edit?product_id={product_id}", data={
+    response = post(admin_client, f"/products/edit?product_id={product_id}", data={
         "name": "NewName",
         "price": "12.50",
         "quantity": "9"
@@ -179,13 +181,13 @@ def test_edit_product_unknown_returns_404(admin_client):
     assert admin_client.get(
         "/products/edit?product_id=99999"
     ).status_code == 404
-    assert admin_client.post("/products/edit?product_id=99999", data={
+    assert post(admin_client, "/products/edit?product_id=99999", data={
         "name": "X", "price": "1", "quantity": "1"
     }).status_code == 404
 
 
 def test_edit_product_requires_id(admin_client):
-    response = admin_client.post("/products/edit", data={
+    response = post(admin_client, "/products/edit", data={
         "name": "X", "price": "1", "quantity": "1"
     })
 
@@ -193,7 +195,7 @@ def test_edit_product_requires_id(admin_client):
 
 
 def test_delete_product_flow(admin_client, db_connection):
-    admin_client.post("/brands/add", data={"name": "DelCo"})
+    post(admin_client, "/brands/add", data={"name": "DelCo"})
     product_id = add_product(
         admin_client, db_connection, "DelCo", "Doomed", "1.00", "1"
     )
@@ -202,27 +204,27 @@ def test_delete_product_flow(admin_client, db_connection):
     assert response.status_code == 200
     assert b"Are you sure you want to delete this product?" in response.data
 
-    response = admin_client.post(f"/products/delete?product_id={product_id}")
+    response = post(admin_client, f"/products/delete?product_id={product_id}")
     assert response.status_code == 302
 
     assert product_row(db_connection, product_id) is None
 
 
 def test_delete_product_requires_id(admin_client):
-    response = admin_client.post("/products/delete")
+    response = post(admin_client, "/products/delete")
 
     assert response.status_code == 400
 
 
 def test_delete_product_unknown_returns_404(admin_client):
-    response = admin_client.post("/products/delete?product_id=99999")
+    response = post(admin_client, "/products/delete?product_id=99999")
 
     assert response.status_code == 404
 
 
 def test_search_filters_by_name_and_brand(admin_client, db_connection):
-    admin_client.post("/brands/add", data={"name": "Acme"})
-    admin_client.post("/brands/add", data={"name": "Beta"})
+    post(admin_client, "/brands/add", data={"name": "Acme"})
+    post(admin_client, "/brands/add", data={"name": "Beta"})
     add_product(admin_client, db_connection, "Acme", "Widget", "1", "1")
     add_product(admin_client, db_connection, "Beta", "Gadget", "1", "1")
 
@@ -250,7 +252,7 @@ def test_search_with_no_matches_shows_empty_state(admin_client):
 
 
 def test_search_treats_wildcards_literally(admin_client, db_connection):
-    admin_client.post("/brands/add", data={"name": "WildCo"})
+    post(admin_client, "/brands/add", data={"name": "WildCo"})
     add_product(admin_client, db_connection, "WildCo", "100%_pure", "1", "1")
     add_product(admin_client, db_connection, "WildCo", "Ordinary Soap", "1", "1")
 
@@ -263,7 +265,7 @@ def test_search_treats_wildcards_literally(admin_client, db_connection):
 
 
 def test_sorting_orders_products(admin_client, db_connection):
-    admin_client.post("/brands/add", data={"name": "SortCo"})
+    post(admin_client, "/brands/add", data={"name": "SortCo"})
     add_product(admin_client, db_connection, "SortCo", "Banana", "5.00", "1")
     add_product(admin_client, db_connection, "SortCo", "Apple", "9.00", "1")
     add_product(admin_client, db_connection, "SortCo", "Cherry", "1.00", "1")
@@ -294,7 +296,7 @@ def test_unknown_sort_key_falls_back_to_default_order(admin_client):
 
 
 def test_pagination_splits_pages(admin_client, db_connection):
-    admin_client.post("/brands/add", data={"name": "PageCo"})
+    post(admin_client, "/brands/add", data={"name": "PageCo"})
 
     for index in range(1, 8):
         add_product(
@@ -321,7 +323,7 @@ def test_pagination_splits_pages(admin_client, db_connection):
 
 
 def test_csv_export_contains_all_products(admin_client, db_connection):
-    admin_client.post("/brands/add", data={"name": "CsvCo"})
+    post(admin_client, "/brands/add", data={"name": "CsvCo"})
     add_product(admin_client, db_connection, "CsvCo", "Exported Item", "3.50", "2")
 
     response = admin_client.get("/products/export")
@@ -336,7 +338,7 @@ def test_csv_export_contains_all_products(admin_client, db_connection):
 
 
 def test_csv_export_honors_search_filter(admin_client, db_connection):
-    admin_client.post("/brands/add", data={"name": "CsvFilter"})
+    post(admin_client, "/brands/add", data={"name": "CsvFilter"})
     add_product(admin_client, db_connection, "CsvFilter", "KeepThis", "1", "1")
     add_product(admin_client, db_connection, "CsvFilter", "DropThat", "1", "1")
 
