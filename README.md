@@ -1,11 +1,13 @@
 # Inventory Management System
 
+[![Tests](https://github.com/wladimirkarpicki/inventory-management-system/actions/workflows/tests.yml/badge.svg)](https://github.com/wladimirkarpicki/inventory-management-system/actions/workflows/tests.yml)
+
 A web-based inventory management application built with Python, Flask, and PostgreSQL.
 
 ## Features
 
 - User authentication — all pages require sign-in, with a first-run setup for the initial admin account
-- Admin-only user management: create additional users (regular or admin) from the Users page
+- Admin-only user management: create users, change roles, delete accounts — with server-side safety rules
 - Dashboard with live inventory statistics
 - View, search, and sort products; CSV export of the inventory
 - Add, edit, and delete products (brand, name, price, quantity)
@@ -14,6 +16,7 @@ A web-based inventory management application built with Python, Flask, and Postg
 - Server-side form validation with friendly error messages
 - Friendly error page when the database is unavailable
 - One PostgreSQL connection per request
+- Automated test suite (pytest) with continuous integration on GitHub Actions
 
 ## Technologies
 
@@ -37,6 +40,12 @@ cd inventory-management-system
 
 ```bash
 pip install -r requirements.txt
+```
+
+For development and testing, also install the dev dependencies:
+
+```bash
+pip install -r requirements-dev.txt
 ```
 
 3. Create a `.env` file in the project root:
@@ -85,10 +94,27 @@ The admin can manage accounts from the **Users** page (visible in the navigation
 
 Two safety rules are enforced server-side: the last remaining admin cannot be demoted or deleted (so the installation can never lock itself out of administration), and you cannot delete the account you are currently signed in with. Regular users can work with products and brands but receive 403 on all account management pages.
 
+## Testing
+
+The test suite runs the whole application against a throwaway PostgreSQL database created from `schema.sql` — the database configured in `.env` is never touched.
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+It covers authentication and the first-run setup flow, user management with all of its safety rules, product and brand CRUD with validation, search (including LIKE-wildcard escaping), sorting, pagination, CSV export, and the dashboard statistics. Every test starts from a clean database, so tests can run in any order.
+
+GitHub Actions runs the same suite on every push — see `.github/workflows/tests.yml`.
+
 ## Project Structure
 
 - `app.py` — Flask application with all routes
 - `database.py` — reads `.env` and builds the PostgreSQL connection string
 - `schema.sql` — database schema for a fresh installation
 - `templates/` — Jinja2 templates
-- `requirements.txt` — Python dependencies
+- `tests/` — pytest test suite
+- `requirements.txt` — runtime dependencies
+- `requirements-dev.txt` — development dependencies (pytest)
+- `pytest.ini` — pytest configuration
+- `.github/workflows/tests.yml` — CI pipeline
