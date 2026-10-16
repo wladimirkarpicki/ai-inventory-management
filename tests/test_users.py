@@ -1,10 +1,12 @@
-from markupsafe import escape
+﻿from markupsafe import escape
+
+from conftest import post
 
 from conftest import ADMIN_USERNAME
 
 
 def add_user(admin_client, username, password="new-pass-123", role="user"):
-    return admin_client.post("/users/add", data={
+    return post(admin_client, "/users/add", data={
         "username": username,
         "password": password,
         "confirm": password,
@@ -35,7 +37,7 @@ def test_add_user_creates_loginable_account(
 
     client = flask_app.test_client()
 
-    response = client.post("/login", data={
+    response = post(client, "/login", data={
         "username": "newcomer",
         "password": "new-pass-123"
     })
@@ -56,7 +58,7 @@ def test_add_user_rejects_duplicate_username(admin_client, db_connection):
 
 
 def test_add_user_rejects_short_password(admin_client):
-    response = admin_client.post("/users/add", data={
+    response = post(admin_client, "/users/add", data={
         "username": "shortpass",
         "password": "short",
         "confirm": "short",
@@ -68,7 +70,7 @@ def test_add_user_rejects_short_password(admin_client):
 
 
 def test_add_user_rejects_mismatched_confirm(admin_client):
-    response = admin_client.post("/users/add", data={
+    response = post(admin_client, "/users/add", data={
         "username": "mismatched",
         "password": "one-pass-123",
         "confirm": "two-pass-123",
@@ -80,7 +82,7 @@ def test_add_user_rejects_mismatched_confirm(admin_client):
 
 
 def test_add_user_rejects_unknown_role(admin_client):
-    response = admin_client.post("/users/add", data={
+    response = post(admin_client, "/users/add", data={
         "username": "roleless",
         "password": "some-pass-123",
         "confirm": "some-pass-123",
@@ -104,7 +106,7 @@ def test_role_change_cycle(admin_client, db_connection):
     add_user(admin_client, "switcher")
     target_id = user_row(db_connection, "switcher")[0]
 
-    response = admin_client.post(
+    response = post(admin_client, 
         f"/users/edit?user_id={target_id}",
         data={"role": "admin"}
     )
@@ -112,7 +114,7 @@ def test_role_change_cycle(admin_client, db_connection):
     assert response.status_code == 302
     assert user_row(db_connection, "switcher")[2] == "admin"
 
-    response = admin_client.post(
+    response = post(admin_client, 
         f"/users/edit?user_id={target_id}",
         data={"role": "user"}
     )
@@ -124,7 +126,7 @@ def test_role_change_cycle(admin_client, db_connection):
 def test_last_admin_cannot_be_demoted(admin_client, db_connection):
     admin_id = user_row(db_connection, ADMIN_USERNAME)[0]
 
-    response = admin_client.post(
+    response = post(admin_client, 
         f"/users/edit?user_id={admin_id}",
         data={"role": "user"},
         follow_redirects=True
@@ -138,7 +140,7 @@ def test_edit_user_rejects_unknown_role(admin_client, db_connection):
     add_user(admin_client, "stable")
     target_id = user_row(db_connection, "stable")[0]
 
-    response = admin_client.post(
+    response = post(admin_client, 
         f"/users/edit?user_id={target_id}",
         data={"role": "owner"},
         follow_redirects=True
@@ -149,7 +151,7 @@ def test_edit_user_rejects_unknown_role(admin_client, db_connection):
 
 
 def test_edit_user_requires_id(admin_client):
-    response = admin_client.post("/users/edit", data={"role": "admin"})
+    response = post(admin_client, "/users/edit", data={"role": "admin"})
 
     assert response.status_code == 400
 
@@ -174,7 +176,7 @@ def test_delete_user_removes_account(admin_client, db_connection):
     add_user(admin_client, "disposable")
     target_id = user_row(db_connection, "disposable")[0]
 
-    response = admin_client.post(f"/users/delete?user_id={target_id}")
+    response = post(admin_client, f"/users/delete?user_id={target_id}")
 
     assert response.status_code == 302
     assert user_row(db_connection, "disposable") is None
@@ -183,7 +185,7 @@ def test_delete_user_removes_account(admin_client, db_connection):
 def test_admin_cannot_delete_own_account(admin_client, db_connection):
     admin_id = user_row(db_connection, ADMIN_USERNAME)[0]
 
-    response = admin_client.post(
+    response = post(admin_client, 
         f"/users/delete?user_id={admin_id}",
         follow_redirects=True
     )
@@ -193,13 +195,13 @@ def test_admin_cannot_delete_own_account(admin_client, db_connection):
 
 
 def test_delete_user_requires_id(admin_client):
-    response = admin_client.post("/users/delete")
+    response = post(admin_client, "/users/delete")
 
     assert response.status_code == 400
 
 
 def test_delete_user_unknown_returns_404(admin_client):
-    response = admin_client.post("/users/delete?user_id=99999")
+    response = post(admin_client, "/users/delete?user_id=99999")
 
     assert response.status_code == 404
 
@@ -208,7 +210,7 @@ def test_regular_users_get_403_on_user_pages(user_client):
     assert user_client.get("/users").status_code == 403
     assert user_client.get("/users/add").status_code == 403
 
-    assert user_client.post("/users/add", data={
+    assert post(user_client, "/users/add", data={
         "username": "sneaky",
         "password": "sneaky-pass-123",
         "confirm": "sneaky-pass-123",
@@ -216,12 +218,12 @@ def test_regular_users_get_403_on_user_pages(user_client):
     }).status_code == 403
 
     assert user_client.get("/users/edit?user_id=1").status_code == 403
-    assert user_client.post(
+    assert post(user_client, 
         "/users/edit?user_id=1", data={"role": "admin"}
     ).status_code == 403
 
     assert user_client.get("/users/delete?user_id=1").status_code == 403
-    assert user_client.post("/users/delete?user_id=1").status_code == 403
+    assert post(user_client, "/users/delete?user_id=1").status_code == 403
 
 
 def test_regular_users_keep_inventory_access(user_client):

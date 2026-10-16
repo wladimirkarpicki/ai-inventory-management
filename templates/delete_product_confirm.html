@@ -44,6 +44,12 @@ Delete Product
         action="{{ url_for('delete_product', product_id=product[0]) }}"
     >
 
+        <input
+            type="hidden"
+            name="csrf_token"
+            value="{{ csrf_token }}"
+        >
+
         <div class="form-actions">
 
             <button
