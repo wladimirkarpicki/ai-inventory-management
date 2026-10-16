@@ -41,7 +41,19 @@ if not SECRET_KEY:
         "Add SECRET_KEY=<random value> to your .env file."
     )
 
+if len(SECRET_KEY) < 32:
+    raise RuntimeError(
+        "SECRET_KEY is too short. Generate a strong one with "
+        "python -c \"import secrets; print(secrets.token_hex(32))\""
+    )
+
 app.secret_key = SECRET_KEY
+
+# Lax keeps the session cookie off cross-site POSTs, which
+# complements the CSRF token. Secure is opt-in: it requires
+# the deployment to run on HTTPS.
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.getenv("SESSION_COOKIE_SECURE") == "1"
 
 PAGE_SIZE = 5
 
@@ -81,6 +93,22 @@ def close_db(exc):
 
     if db is not None:
         db.close()
+
+
+@app.after_request
+def set_security_headers(response):
+    """
+    Attach baseline security headers to every response.
+    """
+
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; style-src 'self' 'unsafe-inline'"
+    )
+
+    return response
 
 
 @app.errorhandler(psycopg.OperationalError)
