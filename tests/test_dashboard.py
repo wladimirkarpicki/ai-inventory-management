@@ -1,6 +1,8 @@
-import re
+﻿import re
 
 from test_products import add_product
+
+from conftest import post
 
 
 def stat_value(page_text, label):
@@ -34,8 +36,8 @@ def test_dashboard_shows_zeroes_on_empty_inventory(admin_client):
 
 
 def test_dashboard_aggregates_inventory(admin_client, db_connection):
-    admin_client.post("/brands/add", data={"name": "DashA"})
-    admin_client.post("/brands/add", data={"name": "DashB"})
+    post(admin_client, "/brands/add", data={"name": "DashA"})
+    post(admin_client, "/brands/add", data={"name": "DashB"})
     add_product(admin_client, db_connection, "DashA", "Dash Item A", "10.00", "2")
     add_product(admin_client, db_connection, "DashB", "Dash Item B", "5.00", "3")
 
@@ -49,7 +51,7 @@ def test_dashboard_aggregates_inventory(admin_client, db_connection):
 
 
 def test_dashboard_low_stock_threshold(admin_client, db_connection):
-    admin_client.post("/brands/add", data={"name": "LowCo"})
+    post(admin_client, "/brands/add", data={"name": "LowCo"})
     add_product(admin_client, db_connection, "LowCo", "Low Item", "1.00", "5")
     add_product(admin_client, db_connection, "LowCo", "High Item", "1.00", "6")
 

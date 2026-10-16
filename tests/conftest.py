@@ -1,4 +1,5 @@
 import os
+import secrets
 import sys
 import uuid
 from pathlib import Path
@@ -72,6 +73,31 @@ def _clean_tables():
     conn.close()
 
 
+def _csrf_token(client):
+    """
+    Mirror of the app context processor: make sure the session
+    carries a CSRF token and return it.
+    """
+
+    with client.session_transaction() as sess:
+        if "csrf_token" not in sess:
+            sess["csrf_token"] = secrets.token_hex(32)
+
+        return sess["csrf_token"]
+
+
+def post(client, url, data=None, **kwargs):
+    """
+    POST helper that attaches the per-session CSRF token, the way
+    the rendered forms would.
+    """
+
+    data = dict(data or {})
+    data.setdefault("csrf_token", _csrf_token(client))
+
+    return client.post(url, data=data, **kwargs)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _database():
     _create_test_database()
@@ -84,6 +110,22 @@ def _database():
 @pytest.fixture(autouse=True)
 def _clean_tables_per_test():
     _clean_tables()
+
+
+@pytest.fixture(autouse=True)
+def _reset_failed_logins():
+    """
+    Login rate limiting keeps in-process state; keep it out of
+    the way of unrelated tests.
+    """
+
+    import app as app_module
+
+    app_module._failed_logins.clear()
+
+    yield
+
+    app_module._failed_logins.clear()
 
 
 @pytest.fixture()
@@ -122,13 +164,13 @@ def admin_client(flask_app):
 
     client = flask_app.test_client()
 
-    client.post("/setup", data={
+    post(client, "/setup", data={
         "username": ADMIN_USERNAME,
         "password": ADMIN_PASSWORD,
         "confirm": ADMIN_PASSWORD
     })
 
-    client.post("/login", data={
+    post(client, "/login", data={
         "username": ADMIN_USERNAME,
         "password": ADMIN_PASSWORD
     })
@@ -142,7 +184,7 @@ def user_client(flask_app, admin_client):
     A second client signed in as a regular user created by the admin.
     """
 
-    admin_client.post("/users/add", data={
+    post(admin_client, "/users/add", data={
         "username": REGULAR_USERNAME,
         "password": REGULAR_PASSWORD,
         "confirm": REGULAR_PASSWORD,
@@ -151,7 +193,7 @@ def user_client(flask_app, admin_client):
 
     client = flask_app.test_client()
 
-    client.post("/login", data={
+    post(client, "/login", data={
         "username": REGULAR_USERNAME,
         "password": REGULAR_PASSWORD
     })

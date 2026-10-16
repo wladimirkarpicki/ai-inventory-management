@@ -17,6 +17,7 @@ A web-based inventory management application built with Python, Flask, and Postg
 - Friendly error page when the database is unavailable
 - One PostgreSQL connection per request
 - Automated test suite (pytest) with continuous integration on GitHub Actions
+- CSRF protection on all forms, login rate limiting, and session invalidation for deleted accounts
 
 ## Technologies
 
@@ -93,6 +94,13 @@ The admin can manage accounts from the **Users** page (visible in the navigation
 - **Delete** accounts after a confirmation step.
 
 Two safety rules are enforced server-side: the last remaining admin cannot be demoted or deleted (so the installation can never lock itself out of administration), and you cannot delete the account you are currently signed in with. Regular users can work with products and brands but receive 403 on all account management pages.
+
+## Security
+
+- **CSRF protection** — every form carries a per-session token; a POST request without a valid token is rejected with 400 before it reaches any route.
+- **Login rate limiting** — five failed sign-in attempts for the same username lock that username for 15 minutes; a successful sign-in resets the counter. The attempt state is kept in process memory, so it also resets when the server restarts.
+- **Session invalidation** — a session whose account no longer exists (for example, deleted by an admin) stops working on the very next request.
+- Passwords are stored as salted werkzeug hashes, all SQL statements are parameterized, search terms escape LIKE wildcards, and role checks for admin pages run server-side in the request guard.
 
 ## Testing
 
