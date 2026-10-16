@@ -13,7 +13,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 load_dotenv(os.path.join(REPO_ROOT, ".env"))
 
-os.environ.setdefault("SECRET_KEY", "pytest-secret-key")
+os.environ.setdefault("SECRET_KEY", secrets.token_hex(32))
 
 TEST_DB = f"ims_pytest_{uuid.uuid4().hex[:8]}"
 

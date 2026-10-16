@@ -27,7 +27,7 @@ jobs:
       DATABASE_HOST: localhost
       DATABASE_USER: postgres
       DATABASE_PASSWORD: postgres
-      SECRET_KEY: ci-only-secret-key
+      SECRET_KEY: ci-only-secret-key-0123456789abcdef0123456789abcdef
 
     steps:
       - uses: actions/checkout@v4
