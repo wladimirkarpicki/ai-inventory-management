@@ -104,6 +104,10 @@ Two safety rules are enforced server-side: the last remaining admin cannot be de
 - **Login rate limiting** — five failed sign-in attempts for the same username lock that username for 15 minutes; a successful sign-in resets the counter. The attempt state is kept in process memory, so it also resets when the server restarts.
 - **Session invalidation** — a session whose account no longer exists (for example, deleted by an admin) stops working on the very next request.
 - Passwords are stored as salted werkzeug hashes, all SQL statements are parameterized, search terms escape LIKE wildcards, and role checks for admin pages run server-side in the request guard.
+- **Cookie flags** — the session cookie is `HttpOnly` with `SameSite=Lax` (defense-in-depth alongside the CSRF token); the `Secure` flag is opt-in via `SESSION_COOKIE_SECURE=1` for HTTPS deployments.
+- **Security headers** — every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and a restrictive Content-Security-Policy (`default-src 'self'; style-src 'self' 'unsafe-inline'`).
+- **Secret key strength** — `SECRET_KEY` must be at least 32 characters at startup.
+- Full audit: **[SECURITY.md](SECURITY.md)**.
 
 ## Testing
 
