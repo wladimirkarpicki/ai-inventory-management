@@ -151,7 +151,13 @@ def require_login():
 
         return redirect(url_for("login"))
 
-    if request.endpoint in ("users", "add_user", "edit_user", "delete_user"):
+    if request.endpoint in (
+        "users",
+        "add_user",
+        "edit_user",
+        "delete_user",
+        "user_password"
+    ):
         conn = get_db()
         cur = conn.cursor()
 
@@ -519,6 +525,111 @@ def delete_user():
     return render_template(
         "delete_user_confirm.html",
         account=account
+    )
+
+
+@app.route("/password", methods=["GET", "POST"])
+def change_password():
+    """
+    Self-service password change for the signed-in account.
+    Requires the current password and keeps the session.
+    """
+
+    error = None
+
+    if request.method == "POST":
+
+        current = request.form.get("current_password", "")
+        new_password = request.form.get("password", "")
+        confirm = request.form.get("confirm", "")
+
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute(
+            "SELECT password_hash FROM users WHERE id = %s",
+            (session["user_id"],)
+        )
+
+        row = cur.fetchone()
+
+        if row is None:
+            session.pop("user_id", None)
+
+            return redirect(url_for("login"))
+
+        if not check_password_hash(row[0], current):
+            error = "Current password is incorrect."
+        elif len(new_password) < 8:
+            error = "Password must be at least 8 characters."
+        elif new_password != confirm:
+            error = "Passwords do not match."
+        else:
+            cur.execute(
+                "UPDATE users SET password_hash = %s WHERE id = %s",
+                (
+                    generate_password_hash(new_password),
+                    session["user_id"]
+                )
+            )
+
+            conn.commit()
+
+            return redirect(url_for("home"))
+
+    return render_template("password.html", error=error)
+
+
+@app.route("/users/password", methods=["GET", "POST"])
+def user_password():
+    """
+    Admin-only password reset for any account. The old
+    password is not required here.
+    """
+
+    user_id = request.args.get("user_id", type=int)
+
+    if user_id is None:
+        return "User ID is required", 400
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT id, username, role FROM users WHERE id = %s",
+        (user_id,)
+    )
+
+    account = cur.fetchone()
+
+    if account is None:
+        return "User not found", 404
+
+    error = None
+
+    if request.method == "POST":
+
+        new_password = request.form.get("password", "")
+        confirm = request.form.get("confirm", "")
+
+        if len(new_password) < 8:
+            error = "Password must be at least 8 characters."
+        elif new_password != confirm:
+            error = "Passwords do not match."
+        else:
+            cur.execute(
+                "UPDATE users SET password_hash = %s WHERE id = %s",
+                (generate_password_hash(new_password), user_id)
+            )
+
+            conn.commit()
+
+            return redirect(url_for("users"))
+
+    return render_template(
+        "user_password.html",
+        account=account,
+        error=error
     )
 
 
