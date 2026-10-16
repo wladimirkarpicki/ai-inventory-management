@@ -38,6 +38,12 @@ Delete Brand
         action="{{ url_for('delete_brand', brand_id=brand[0]) }}"
     >
 
+        <input
+            type="hidden"
+            name="csrf_token"
+            value="{{ csrf_token }}"
+        >
+
         <div class="form-actions">
 
             <button

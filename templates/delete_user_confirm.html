@@ -43,6 +43,12 @@ Delete User
         action="{{ url_for('delete_user', user_id=account[0]) }}"
     >
 
+        <input
+            type="hidden"
+            name="csrf_token"
+            value="{{ csrf_token }}"
+        >
+
         <div class="form-actions">
 
             <button

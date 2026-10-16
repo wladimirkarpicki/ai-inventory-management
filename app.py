@@ -1,6 +1,8 @@
 import csv
 import io
 import os
+import secrets
+import time
 
 from decimal import (
     Decimal,
@@ -51,6 +53,11 @@ SORT_COLUMNS = {
     "quantity": "p.quantity"
 }
 
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_LOCKOUT_SECONDS = 15 * 60
+
+_failed_logins = {}
+
 
 def get_db():
     """
@@ -90,6 +97,23 @@ def db_unavailable(exc):
 
 
 @app.before_request
+def require_csrf_token():
+    """
+    Reject state-changing requests that do not carry the
+    per-session CSRF token. Runs before require_login so
+    guest POSTs (login, setup) are protected as well.
+    """
+
+    if request.method == "POST":
+        token = request.form.get("csrf_token", "")
+
+        if not token or token != session.get("csrf_token"):
+            return "Missing or invalid CSRF token.", 400
+
+    return None
+
+
+@app.before_request
 def require_login():
     """
     Every page requires a logged-in user, except the auth
@@ -109,6 +133,21 @@ def require_login():
 
         if cur.fetchone() is None:
             return redirect(url_for("setup"))
+
+        return redirect(url_for("login"))
+
+    # Signed in: make sure the account still exists. An admin
+    # may have deleted it, and such a session must not work.
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT 1 FROM users WHERE id = %s",
+        (session["user_id"],)
+    )
+
+    if cur.fetchone() is None:
+        session.pop("user_id", None)
 
         return redirect(url_for("login"))
 
@@ -154,6 +193,20 @@ def inject_current_user():
         "current_user": row[0] if row else None,
         "current_user_role": row[1] if row else None
     }
+
+
+@app.context_processor
+def inject_csrf_token():
+    """
+    Give every form a per-session CSRF token. The token is
+    generated once per browser session and must accompany
+    every POST request.
+    """
+
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_hex(32)
+
+    return {"csrf_token": session["csrf_token"]}
 
 
 @app.route("/setup", methods=["GET", "POST"])
@@ -222,22 +275,38 @@ def login():
 
         form["username"] = username
 
-        conn = get_db()
-        cur = conn.cursor()
+        attempts, locked_until = _failed_logins.get(username, (0, 0.0))
 
-        cur.execute(
-            "SELECT id, password_hash FROM users WHERE username = %s",
-            (username,)
-        )
-
-        row = cur.fetchone()
-
-        if row is None or not check_password_hash(row[1], password):
-            error = "Invalid username or password."
+        if locked_until > time.time():
+            error = "Too many failed attempts. Please try again later."
         else:
-            session["user_id"] = row[0]
+            conn = get_db()
+            cur = conn.cursor()
 
-            return redirect(url_for("home"))
+            cur.execute(
+                "SELECT id, password_hash FROM users WHERE username = %s",
+                (username,)
+            )
+
+            row = cur.fetchone()
+
+            if row is None or not check_password_hash(row[1], password):
+                attempts += 1
+
+                _failed_logins[username] = (
+                    attempts,
+                    time.time() + LOGIN_LOCKOUT_SECONDS
+                    if attempts >= LOGIN_MAX_ATTEMPTS
+                    else 0.0
+                )
+
+                error = "Invalid username or password."
+            else:
+                _failed_logins.pop(username, None)
+
+                session["user_id"] = row[0]
+
+                return redirect(url_for("home"))
 
     return render_template("login.html", error=error, form=form)
 

@@ -1,4 +1,6 @@
-from conftest import ADMIN_PASSWORD, ADMIN_USERNAME
+﻿from conftest import ADMIN_PASSWORD, ADMIN_USERNAME
+
+from conftest import post
 
 
 def test_fresh_install_redirects_to_setup(client):
@@ -9,7 +11,7 @@ def test_fresh_install_redirects_to_setup(client):
 
 
 def test_setup_creates_first_admin(client):
-    response = client.post("/setup", data={
+    response = post(client, "/setup", data={
         "username": "first",
         "password": "first-pass-123",
         "confirm": "first-pass-123"
@@ -18,7 +20,7 @@ def test_setup_creates_first_admin(client):
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/login")
 
-    response = client.post("/login", data={
+    response = post(client, "/login", data={
         "username": "first",
         "password": "first-pass-123"
     })
@@ -37,7 +39,7 @@ def test_setup_closes_once_a_user_exists(admin_client):
 def test_login_rejects_wrong_password(admin_client, flask_app):
     client = flask_app.test_client()
 
-    response = client.post("/login", data={
+    response = post(client, "/login", data={
         "username": ADMIN_USERNAME,
         "password": "wrong-pass-123"
     })
@@ -52,7 +54,7 @@ def test_login_rejects_wrong_password(admin_client, flask_app):
 def test_login_rejects_unknown_user(admin_client, flask_app):
     client = flask_app.test_client()
 
-    response = client.post("/login", data={
+    response = post(client, "/login", data={
         "username": "ghost-user",
         "password": "whatever-123"
     })
@@ -82,7 +84,7 @@ def test_guests_are_sent_to_login_when_users_exist(admin_client, flask_app):
 
 
 def test_setup_requires_matching_password(client):
-    response = client.post("/setup", data={
+    response = post(client, "/setup", data={
         "username": "mismatch",
         "password": "one-pass-123",
         "confirm": "other-pass-123"
@@ -93,7 +95,7 @@ def test_setup_requires_matching_password(client):
 
 
 def test_setup_requires_long_password(client):
-    response = client.post("/setup", data={
+    response = post(client, "/setup", data={
         "username": "shorty",
         "password": "short",
         "confirm": "short"
@@ -104,7 +106,7 @@ def test_setup_requires_long_password(client):
 
 
 def test_setup_requires_username(client):
-    response = client.post("/setup", data={
+    response = post(client, "/setup", data={
         "username": "",
         "password": "valid-pass-123",
         "confirm": "valid-pass-123"
