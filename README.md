@@ -91,7 +91,10 @@ The admin can manage accounts from the **Users** page (visible in the navigation
 
 - **Create** users with a username, a password of at least 8 characters, and a role — regular **User** or **Admin**.
 - **Change roles** from each account's Edit page.
+- **Reset passwords** from each account's Password page — the old password is not required.
 - **Delete** accounts after a confirmation step.
+
+Every signed-in user can change their own password via **Change Password** in the navigation; that flow always requires the current password, while the admin reset does not.
 
 Two safety rules are enforced server-side: the last remaining admin cannot be demoted or deleted (so the installation can never lock itself out of administration), and you cannot delete the account you are currently signed in with. Regular users can work with products and brands but receive 403 on all account management pages.
 
