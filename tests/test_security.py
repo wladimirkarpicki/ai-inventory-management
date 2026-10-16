@@ -217,3 +217,26 @@ def test_deleted_account_session_is_invalidated(
 
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/login")
+
+
+# --- audit hardening -----------------------------------------------------
+
+def test_security_headers_on_every_response(client):
+    response = client.get("/login")
+
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["Referrer-Policy"] == "no-referrer"
+    assert "default-src 'self'" in response.headers["Content-Security-Policy"]
+
+
+def test_session_cookie_flags(client):
+    response = client.get("/login")
+
+    cookie = response.headers.get("Set-Cookie", "")
+
+    assert "HttpOnly" in cookie
+    assert "SameSite=Lax" in cookie
+
+    # Secure stays off unless the deployment opts in via HTTPS
+    assert "Secure" not in cookie
