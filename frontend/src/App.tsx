@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom"
 
 import { AuthProvider, useAuth } from "@/auth"
 import { Layout } from "@/components/layout"
+import { Toaster } from "@/components/ui/sonner"
 import { BrandsPage } from "@/pages/BrandsPage"
 import { DashboardPage } from "@/pages/DashboardPage"
 import { LoginPage } from "@/pages/LoginPage"
@@ -91,6 +92,7 @@ export default function App() {
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      <Toaster />
     </AuthProvider>
   )
 }
