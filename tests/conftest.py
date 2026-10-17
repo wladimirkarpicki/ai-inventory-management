@@ -115,17 +115,32 @@ def _clean_tables_per_test():
 @pytest.fixture(autouse=True)
 def _reset_failed_logins():
     """
-    Login rate limiting keeps in-process state; keep it out of
-    the way of unrelated tests.
+    Login rate limiting keeps in-process state in both the Flask
+    app and the FastAPI app; keep it out of the way of unrelated
+    tests.
     """
 
     import app as app_module
 
     app_module._failed_logins.clear()
 
+    try:
+        import main as main_module
+
+        main_module._failed_logins.clear()
+    except ImportError:
+        pass
+
     yield
 
     app_module._failed_logins.clear()
+
+    try:
+        import main as main_module
+
+        main_module._failed_logins.clear()
+    except ImportError:
+        pass
 
 
 @pytest.fixture()
