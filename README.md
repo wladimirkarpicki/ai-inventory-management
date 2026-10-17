@@ -109,6 +109,25 @@ Two safety rules are enforced server-side: the last remaining admin cannot be de
 - **Secret key strength** — `SECRET_KEY` must be at least 32 characters at startup.
 - Full audit: **[SECURITY.md](SECURITY.md)**.
 
+## JSON API and Single-Page App
+
+The project is moving to a split architecture: a **FastAPI** JSON backend (`main.py`) and a **React SPA** (`frontend/`) built with Vite, TypeScript, Tailwind CSS v4, and **shadcn/ui** components. The API keeps every server-side guarantee of the Flask app — parameterized SQL, rate-limited login, last-admin and self-delete protection, and immediate rejection of tokens belonging to deleted accounts.
+
+- **Authentication** — `POST /api/auth/setup` creates the initial admin while no user exists; `POST /api/auth/login` returns a bearer token (JWT, 12 hours). Every `/api/*` route except setup, login, status, and health requires the `Authorization: Bearer <token>` header.
+- **Endpoints** — `/api/auth/me`, `/api/auth/password` (self-service change), `/api/users` (admin-only CRUD + `/api/users/{id}/password` reset), `/api/brands`, `/api/products` (search, sort, pagination), `/api/dashboard/stats`, `/api/export/products.csv`.
+- **Errors** — problems return a JSON `{"detail": "…"}` message with the proper status code (400 validation, 401 auth, 403 admin-only, 404 missing, 429 rate-limited).
+
+Run the backend and the SPA during development:
+
+```bash
+uvicorn main:app --port 8000        # JSON API
+cd frontend && pnpm install && pnpm dev   # SPA on http://localhost:5173
+```
+
+The Vite dev server proxies `/api/*` to port 8000, so no CORS setup is needed beyond the dev origins already configured in `main.py`. For a production bundle run `pnpm build` in `frontend/`.
+
+The Flask app (`app.py`) still serves the classic server-rendered UI and remains fully tested; it will be retired in a follow-up branch once the SPA covers every flow.
+
 ## Testing
 
 The test suite runs the whole application against a throwaway PostgreSQL database created from `schema.sql` — the database configured in `.env` is never touched.
@@ -118,18 +137,20 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-It covers authentication and the first-run setup flow, user management with all of its safety rules, product and brand CRUD with validation, search (including LIKE-wildcard escaping), sorting, pagination, CSV export, and the dashboard statistics. Every test starts from a clean database, so tests can run in any order.
+It covers authentication and the first-run setup flow, user management with all of its safety rules, product and brand CRUD with validation, search (including LIKE-wildcard escaping), sorting, pagination, CSV export, and the dashboard statistics — for both the classic Flask UI (93 tests) and the FastAPI JSON backend (24 tests via `tests/test_api.py`). Every test starts from a clean database, so tests can run in any order.
 
 GitHub Actions runs the same suite on every push — see `.github/workflows/tests.yml`.
 
 ## Project Structure
 
-- `app.py` — Flask application with all routes
+- `app.py` — Flask application with all server-rendered routes (classic UI)
+- `main.py` — FastAPI JSON backend consumed by the SPA
 - `database.py` — reads `.env` and builds the PostgreSQL connection string
 - `schema.sql` — database schema for a fresh installation
-- `templates/` — Jinja2 templates
-- `tests/` — pytest test suite
+- `templates/` — Jinja2 templates for the classic UI
+- `frontend/` — React + TypeScript SPA (Vite, Tailwind CSS v4, shadcn/ui components)
+- `tests/` — pytest test suite (Flask UI + FastAPI API)
 - `requirements.txt` — runtime dependencies
-- `requirements-dev.txt` — development dependencies (pytest)
+- `requirements-dev.txt` — development dependencies (pytest, httpx)
 - `pytest.ini` — pytest configuration
 - `.github/workflows/tests.yml` — CI pipeline
