@@ -1,4 +1,4 @@
-psycopg==3.2.10
+psycopg==3.3.6
 python-dotenv
 fastapi>=0.143.1
 uvicorn>=0.54.0
