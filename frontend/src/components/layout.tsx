@@ -4,10 +4,13 @@ import {
   ChevronDownIcon,
   KeyRoundIcon,
   LogOutIcon,
+  MoonIcon,
   PackageIcon,
+  SunIcon,
 } from "lucide-react"
 
 import { useAuth } from "@/auth"
+import { useTheme } from "@/theme"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -32,6 +35,7 @@ function initials(username: string | undefined): string {
 
 export function Layout({ children }: { children: ReactNode }) {
   const { user, signOut } = useAuth()
+  const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
 
   function handleSignOut() {
@@ -68,7 +72,22 @@ export function Layout({ children }: { children: ReactNode }) {
             )}
           </nav>
 
-          <div className="ml-auto flex items-center">
+          <div className="ml-auto flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground"
+              aria-label="Toggle theme"
+              title={
+                theme === "dark"
+                  ? "Switch to light theme"
+                  : "Switch to dark theme"
+              }
+              onClick={toggleTheme}
+            >
+              {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+            </Button>
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="gap-2 px-1.5">

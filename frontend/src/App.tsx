@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from "react-router-dom"
 import { AuthProvider, useAuth } from "@/auth"
 import { Layout } from "@/components/layout"
 import { Toaster } from "@/components/ui/sonner"
+import { ThemeProvider } from "@/theme"
 import { BrandsPage } from "@/pages/BrandsPage"
 import { DashboardPage } from "@/pages/DashboardPage"
 import { LoginPage } from "@/pages/LoginPage"
@@ -42,57 +43,59 @@ function RequireAdmin({ children }: { children: ReactNode }) {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/setup" element={<SetupPage />} />
+    <ThemeProvider>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/setup" element={<SetupPage />} />
 
-        <Route
-          path="/"
-          element={
-            <RequireAuth>
-              <DashboardPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/products"
-          element={
-            <RequireAuth>
-              <ProductsPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/brands"
-          element={
-            <RequireAuth>
-              <BrandsPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/password"
-          element={
-            <RequireAuth>
-              <PasswordPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/users"
-          element={
-            <RequireAuth>
-              <RequireAdmin>
-                <UsersPage />
-              </RequireAdmin>
-            </RequireAuth>
-          }
-        />
+          <Route
+            path="/"
+            element={
+              <RequireAuth>
+                <DashboardPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/products"
+            element={
+              <RequireAuth>
+                <ProductsPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/brands"
+            element={
+              <RequireAuth>
+                <BrandsPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/password"
+            element={
+              <RequireAuth>
+                <PasswordPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/users"
+            element={
+              <RequireAuth>
+                <RequireAdmin>
+                  <UsersPage />
+                </RequireAdmin>
+              </RequireAuth>
+            }
+          />
 
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-      <Toaster />
-    </AuthProvider>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+        <Toaster />
+      </AuthProvider>
+    </ThemeProvider>
   )
 }
