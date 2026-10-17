@@ -58,19 +58,15 @@ def user_api(api, admin_api):
 
     assert response.status_code == 200
 
-    admin_api.headers.pop("Authorization")
-
-    response = admin_api.post(
+    # Fresh client for the regular user
+    regular_client = TestClient(main_module.app)
+    login_resp = regular_client.post(
         "/api/auth/login",
         json={"username": REGULAR_USERNAME, "password": REGULAR_PASSWORD},
     )
+    regular_client.headers.update(_bearer(login_resp.json()["access_token"]))
 
-    admin_api.headers.update(_bearer(_login(admin_api, ADMIN_USERNAME, ADMIN_PASSWORD)))
-
-    client = TestClient(main_module.app)
-    client.headers.update(_bearer(response.json()["access_token"]))
-
-    return client
+    return regular_client
 
 
 def _login(api, username, password):
