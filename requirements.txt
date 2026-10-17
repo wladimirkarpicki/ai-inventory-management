@@ -1,6 +1,6 @@
-﻿psycopg==3.2.10
+psycopg==3.2.10
 python-dotenv
 fastapi>=0.115
-uvicorn>=0.30
+uvicorn>=0.54.0
 PyJWT>=2.8
 Werkzeug>=3.1
