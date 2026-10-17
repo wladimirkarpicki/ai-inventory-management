@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react"
 import { useNavigate } from "react-router-dom"
+import { toast } from "sonner"
 
 import { api } from "@/api"
 import { Button } from "@/components/ui/button"
@@ -19,16 +20,13 @@ export function PasswordPage() {
   const [current, setCurrent] = useState("")
   const [password, setPassword] = useState("")
   const [confirm, setConfirm] = useState("")
-  const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState(false)
   const [busy, setBusy] = useState(false)
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    setError(null)
 
     if (password !== confirm) {
-      setError("Passwords do not match.")
+      toast.error("Passwords do not match.")
       return
     }
 
@@ -39,11 +37,10 @@ export function PasswordPage() {
         method: "POST",
         body: { current_password: current, password },
       })
-      setDone(true)
+      toast.success("Password changed. Returning to the dashboard…")
       setTimeout(() => navigate("/"), 1200)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Change failed.")
-    } finally {
+      toast.error(err instanceof Error ? err.message : "Change failed.")
       setBusy(false)
     }
   }
@@ -59,72 +56,58 @@ export function PasswordPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {done ? (
-            <p className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-              Password changed. Returning to the dashboard…
-            </p>
-          ) : (
-            <>
-              {error && (
-                <p className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {error}
-                </p>
-              )}
+          <form onSubmit={handleSubmit} className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="current">Current password</Label>
+              <Input
+                id="current"
+                type="password"
+                autoComplete="current-password"
+                value={current}
+                onChange={(e) => setCurrent(e.target.value)}
+                required
+              />
+            </div>
 
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="current">Current password</Label>
-                  <Input
-                    id="current"
-                    type="password"
-                    autoComplete="current-password"
-                    value={current}
-                    onChange={(e) => setCurrent(e.target.value)}
-                    required
-                  />
-                </div>
+            <div className="grid gap-2">
+              <Label htmlFor="password">New password</Label>
+              <Input
+                id="password"
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="password">New password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    autoComplete="new-password"
-                    minLength={8}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                  />
-                </div>
+            <div className="grid gap-2">
+              <Label htmlFor="confirm">Confirm new password</Label>
+              <Input
+                id="confirm"
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                required
+              />
+            </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="confirm">Confirm new password</Label>
-                  <Input
-                    id="confirm"
-                    type="password"
-                    autoComplete="new-password"
-                    minLength={8}
-                    value={confirm}
-                    onChange={(e) => setConfirm(e.target.value)}
-                    required
-                  />
-                </div>
-
-                <div className="flex gap-2">
-                  <Button type="submit" disabled={busy}>
-                    {busy ? "Saving…" : "Change password"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => navigate("/")}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </form>
-            </>
-          )}
+            <div className="flex gap-2">
+              <Button type="submit" disabled={busy}>
+                {busy ? "Saving…" : "Change password"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate("/")}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
         </CardContent>
       </Card>
     </div>

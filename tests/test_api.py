@@ -302,7 +302,7 @@ def test_brand_crud_blocks_deleting_a_brand_with_products(api, admin_api):
 def test_products_pagination_and_search(api, admin_api):
     brand_id = admin_api.post("/api/brands", json={"name": "Acme"}).json()["id"]
 
-    for index in range(7):
+    for index in range(12):
         admin_api.post(
             "/api/products",
             json={
@@ -318,9 +318,9 @@ def test_products_pagination_and_search(api, admin_api):
     assert response.status_code == 200
     body = response.json()
 
-    assert body["total"] == 7
+    assert body["total"] == 12
     assert body["pages"] == 2
-    assert len(body["items"]) == 5
+    assert len(body["items"]) == 10
 
     response = admin_api.get("/api/products", params={"search": "Item 6"})
 
