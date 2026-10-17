@@ -1,15 +1,31 @@
 import { FormEvent, useCallback, useEffect, useState } from "react"
+import { PencilIcon, PlusIcon, Trash2Icon } from "lucide-react"
+import { toast } from "sonner"
 
 import { api, type Brand } from "@/api"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
   TableBody,
@@ -19,20 +35,26 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
+interface FormState {
+  id: number | null
+  name: string
+}
+
+const EMPTY_FORM: FormState = { id: null, name: "" }
+
 export function BrandsPage() {
-  const [brands, setBrands] = useState<Brand[]>([])
-  const [name, setName] = useState("")
-  const [editing, setEditing] = useState<{ id: number; name: string } | null>(
-    null
-  )
-  const [error, setError] = useState<string | null>(null)
+  const [brands, setBrands] = useState<Brand[] | null>(null)
+  const [form, setForm] = useState<FormState>(EMPTY_FORM)
+  const [formOpen, setFormOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [toDelete, setToDelete] = useState<Brand | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const load = useCallback(async () => {
     try {
       setBrands(await api<Brand[]>("/api/brands"))
-      setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load.")
+      toast.error(err instanceof Error ? err.message : "Failed to load.")
     }
   }, [])
 
@@ -40,153 +62,215 @@ export function BrandsPage() {
     void load()
   }, [load])
 
-  async function handleAdd(event: FormEvent) {
+  function startAdd() {
+    setForm(EMPTY_FORM)
+    setFormOpen(true)
+  }
+
+  function startEdit(brand: Brand) {
+    setForm({ id: brand.id, name: brand.name })
+    setFormOpen(true)
+  }
+
+  function closeForm() {
+    setFormOpen(false)
+    setForm(EMPTY_FORM)
+  }
+
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    setError(null)
+    setSaving(true)
 
     try {
-      await api("/api/brands", { method: "POST", body: { name } })
-      setName("")
+      if (form.id === null) {
+        await api("/api/brands", { method: "POST", body: { name: form.name } })
+        toast.success("Brand added.")
+      } else {
+        await api(`/api/brands/${form.id}`, {
+          method: "PATCH",
+          body: { name: form.name },
+        })
+        toast.success("Brand renamed.")
+      }
+      closeForm()
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed.")
+      toast.error(err instanceof Error ? err.message : "Save failed.")
+    } finally {
+      setSaving(false)
     }
   }
 
-  async function handleRename(event: FormEvent) {
-    event.preventDefault()
+  async function handleDelete() {
+    if (!toDelete) return
 
-    if (!editing) {
-      return
-    }
-
-    setError(null)
-
+    setDeleting(true)
     try {
-      await api(`/api/brands/${editing.id}`, {
-        method: "PATCH",
-        body: { name: editing.name },
-      })
-      setEditing(null)
+      await api(`/api/brands/${toDelete.id}`, { method: "DELETE" })
+      toast.success(`Deleted "${toDelete.name}".`)
+      setToDelete(null)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Rename failed.")
-    }
-  }
-
-  async function handleDelete(brand: Brand) {
-    if (!window.confirm(`Delete brand "${brand.name}"?`)) {
-      return
-    }
-
-    setError(null)
-
-    try {
-      await api(`/api/brands/${brand.id}`, { method: "DELETE" })
-      await load()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Delete failed.")
+      toast.error(err instanceof Error ? err.message : "Delete failed.")
+    } finally {
+      setDeleting(false)
     }
   }
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Brands</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Brands</h1>
+          <p className="text-sm text-muted-foreground">
+            Organize products by brand.
+          </p>
+        </div>
+        <Button onClick={startAdd}>
+          <PlusIcon />
+          Add brand
+        </Button>
+      </div>
 
-      {error && (
-        <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
-        </p>
-      )}
-
-      <Card className="max-w-md">
-        <CardHeader>
-          <CardTitle className="text-base">Add brand</CardTitle>
-        </CardHeader>
+      <Card>
         <CardContent>
-          <form onSubmit={handleAdd} className="flex gap-2">
-            <Input
-              placeholder="Brand name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
-            <Button type="submit">Add</Button>
-          </form>
+          {!brands ? (
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <Skeleton key={index} className="h-10 w-full" />
+              ))}
+            </div>
+          ) : brands.length === 0 ? (
+            <div className="flex flex-col items-center gap-1 py-10 text-center">
+              <p className="text-sm font-medium">No brands yet</p>
+              <p className="text-sm text-muted-foreground">
+                Add your first brand to group products together.
+              </p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="text-right">Products</TableHead>
+                  <TableHead className="w-24" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {brands.map((brand) => (
+                  <TableRow key={brand.id}>
+                    <TableCell className="font-medium">{brand.name}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {brand.product_count ?? 0}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Rename ${brand.name}`}
+                          onClick={() => startEdit(brand)}
+                        >
+                          <PencilIcon />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="text-destructive hover:text-destructive"
+                          aria-label={`Delete ${brand.name}`}
+                          onClick={() => setToDelete(brand)}
+                        >
+                          <Trash2Icon />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
-      <div className="max-w-2xl rounded-xl border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Products</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {brands.map((brand) => (
-              <TableRow key={brand.id}>
-                <TableCell className="font-medium">
-                  {editing?.id === brand.id ? (
-                    <form onSubmit={handleRename} className="flex gap-2">
-                      <Input
-                        value={editing.name}
-                        onChange={(e) =>
-                          setEditing({ ...editing, name: e.target.value })
-                        }
-                        required
-                      />
-                      <Button type="submit" size="sm">
-                        Save
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setEditing(null)}
-                      >
-                        Cancel
-                      </Button>
-                    </form>
-                  ) : (
-                    brand.name
-                  )}
-                </TableCell>
-                <TableCell>{brand.product_count ?? 0}</TableCell>
-                <TableCell className="text-right">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={editing?.id === brand.id}
-                    onClick={() =>
-                      setEditing({ id: brand.id, name: brand.name })
-                    }
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive"
-                    onClick={() => handleDelete(brand)}
-                  >
-                    Delete
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-            {brands.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={3} className="text-muted-foreground">
-                  No brands yet.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <Dialog
+        open={formOpen}
+        onOpenChange={(open) => {
+          if (!open) closeForm()
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {form.id === null ? "Add brand" : "Rename brand"}
+            </DialogTitle>
+            <DialogDescription>
+              {form.id === null
+                ? "Create a new brand for your products."
+                : "Choose a new name for this brand."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSubmit} className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="brand-name">Name</Label>
+              <Input
+                id="brand-name"
+                value={form.name}
+                onChange={(e) =>
+                  setForm((current) => ({ ...current, name: e.target.value }))
+                }
+                placeholder="e.g. Acme"
+                required
+                autoFocus
+              />
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={closeForm}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? "Saving…" : "Save brand"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={toDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setToDelete(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete brand</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete "{toDelete?.name}". This action
+              cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deleting}
+              onClick={(event) => {
+                event.preventDefault()
+                void handleDelete()
+              }}
+            >
+              {deleting ? "Deleting…" : "Delete brand"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
