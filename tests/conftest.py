@@ -15,7 +15,7 @@ load_dotenv(os.path.join(REPO_ROOT, ".env"))
 
 os.environ.setdefault("SECRET_KEY", secrets.token_hex(32))
 
-TEST_DB = f"ims_pytest_{uuid.uuid4().hex[:8]}"
+TEST_DB = f'ims_pytest_{uuid.uuid4().hex[:8]}'
 
 DB_HOST = os.getenv("DATABASE_HOST")
 DB_USER = os.getenv("DATABASE_USER")
@@ -39,7 +39,7 @@ def _create_test_database():
 
     conn = psycopg.connect(ADMIN_CONN_STRING, autocommit=True)
     cur = conn.cursor()
-    cur.execute(f"CREATE DATABASE {TEST_DB}")
+    cur.execute(f'CREATE DATABASE "{TEST_DB}"')
     conn.close()
 
     conn = psycopg.connect(TEST_CONN_STRING)
@@ -57,7 +57,7 @@ def _create_test_database():
 def _drop_test_database():
     conn = psycopg.connect(ADMIN_CONN_STRING, autocommit=True)
     cur = conn.cursor()
-    cur.execute(f"DROP DATABASE {TEST_DB}")
+    cur.execute(f'DROP DATABASE "{TEST_DB}"')
     conn.close()
 
 
@@ -68,34 +68,9 @@ def _clean_tables():
 
     conn = psycopg.connect(TEST_CONN_STRING)
     cur = conn.cursor()
-    cur.execute("TRUNCATE users, products, brands RESTART IDENTITY CASCADE")
+    cur.execute('TRUNCATE users, products, brands RESTART IDENTITY CASCADE')
     conn.commit()
     conn.close()
-
-
-def _csrf_token(client):
-    """
-    Mirror of the app context processor: make sure the session
-    carries a CSRF token and return it.
-    """
-
-    with client.session_transaction() as sess:
-        if "csrf_token" not in sess:
-            sess["csrf_token"] = secrets.token_hex(32)
-
-        return sess["csrf_token"]
-
-
-def post(client, url, data=None, **kwargs):
-    """
-    POST helper that attaches the per-session CSRF token, the way
-    the rendered forms would.
-    """
-
-    data = dict(data or {})
-    data.setdefault("csrf_token", _csrf_token(client))
-
-    return client.post(url, data=data, **kwargs)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -115,32 +90,17 @@ def _clean_tables_per_test():
 @pytest.fixture(autouse=True)
 def _reset_failed_logins():
     """
-    Login rate limiting keeps in-process state in both the Flask
-    app and the FastAPI app; keep it out of the way of unrelated
-    tests.
+    Login rate limiting keeps in-process state in the FastAPI app; keep it
+    out of the way of unrelated tests.
     """
 
-    import app as app_module
+    import main as main_module
 
-    app_module._failed_logins.clear()
-
-    try:
-        import main as main_module
-
-        main_module._failed_logins.clear()
-    except ImportError:
-        pass
+    main_module._failed_logins.clear()
 
     yield
 
-    app_module._failed_logins.clear()
-
-    try:
-        import main as main_module
-
-        main_module._failed_logins.clear()
-    except ImportError:
-        pass
+    main_module._failed_logins.clear()
 
 
 @pytest.fixture()
@@ -155,62 +115,3 @@ def db_connection():
     yield conn
 
     conn.close()
-
-
-@pytest.fixture()
-def flask_app():
-    import app as app_module
-
-    app_module.app.config["TESTING"] = True
-
-    return app_module.app
-
-
-@pytest.fixture()
-def client(flask_app):
-    return flask_app.test_client()
-
-
-@pytest.fixture()
-def admin_client(flask_app):
-    """
-    A client signed in as the first account, which is an admin.
-    """
-
-    client = flask_app.test_client()
-
-    post(client, "/setup", data={
-        "username": ADMIN_USERNAME,
-        "password": ADMIN_PASSWORD,
-        "confirm": ADMIN_PASSWORD
-    })
-
-    post(client, "/login", data={
-        "username": ADMIN_USERNAME,
-        "password": ADMIN_PASSWORD
-    })
-
-    return client
-
-
-@pytest.fixture()
-def user_client(flask_app, admin_client):
-    """
-    A second client signed in as a regular user created by the admin.
-    """
-
-    post(admin_client, "/users/add", data={
-        "username": REGULAR_USERNAME,
-        "password": REGULAR_PASSWORD,
-        "confirm": REGULAR_PASSWORD,
-        "role": "user"
-    })
-
-    client = flask_app.test_client()
-
-    post(client, "/login", data={
-        "username": REGULAR_USERNAME,
-        "password": REGULAR_PASSWORD
-    })
-
-    return client
