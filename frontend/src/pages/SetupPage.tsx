@@ -1,7 +1,9 @@
 import { FormEvent, useState } from "react"
 import { useNavigate } from "react-router-dom"
+import { PackageIcon, TriangleAlertIcon } from "lucide-react"
 
 import { api, setToken, type AuthResponse } from "@/api"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -48,10 +50,19 @@ export function SetupPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
+    <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted px-4 py-10">
+      <div className="flex flex-col items-center gap-2 text-center">
+        <span className="flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+          <PackageIcon className="size-5" />
+        </span>
+        <h1 className="text-xl font-semibold tracking-tight">
+          Inventory Management System
+        </h1>
+      </div>
+
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-xl">First-time setup</CardTitle>
+          <CardTitle>First-time setup</CardTitle>
           <CardDescription>
             Create the initial admin account. This page is only available
             while the installation has no users.
@@ -59,13 +70,14 @@ export function SetupPage() {
         </CardHeader>
         <CardContent>
           {error && (
-            <p className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
-            </p>
+            <Alert variant="destructive" className="mb-4">
+              <TriangleAlertIcon />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
+          <form onSubmit={handleSubmit} className="grid gap-4">
+            <div className="grid gap-2">
               <Label htmlFor="username">Username</Label>
               <Input
                 id="username"
@@ -76,7 +88,7 @@ export function SetupPage() {
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="grid gap-2">
               <Label htmlFor="password">Password (at least 8 characters)</Label>
               <Input
                 id="password"
@@ -89,7 +101,7 @@ export function SetupPage() {
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="grid gap-2">
               <Label htmlFor="confirm">Confirm password</Label>
               <Input
                 id="confirm"
