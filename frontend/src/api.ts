@@ -1,0 +1,105 @@
+const TOKEN_KEY = "ims_token"
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+export function setToken(token: string | null) {
+  if (token) {
+    localStorage.setItem(TOKEN_KEY, token)
+  } else {
+    localStorage.removeItem(TOKEN_KEY)
+  }
+}
+
+export class ApiError extends Error {
+  status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
+
+export async function api<T>(
+  path: string,
+  options: { method?: string; body?: unknown } = {}
+): Promise<T> {
+  const headers: Record<string, string> = {}
+  const token = getToken()
+
+  if (token) headers["Authorization"] = `Bearer ${token}`
+  if (options.body !== undefined) headers["Content-Type"] = "application/json"
+
+  const response = await fetch(path, {
+    method: options.method ?? "GET",
+    headers,
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+  })
+
+  const data = (await response.json().catch(() => null)) as
+    | { detail?: string }
+    | null
+
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      data?.detail ?? `Request failed (${response.status}).`
+    )
+  }
+
+  return data as T
+}
+
+// ------------------------------------------------------------------ types
+
+export interface User {
+  id: number
+  username: string
+  role: "user" | "admin"
+}
+
+export interface UserRow extends User {
+  is_you: boolean
+}
+
+export interface Brand {
+  id: number
+  name: string
+  product_count?: number
+}
+
+export interface Product {
+  id: number
+  brand_id: number
+  brand: string
+  name: string
+  price: number
+  quantity: number
+}
+
+export interface ProductList {
+  items: Product[]
+  page: number
+  pages: number
+  total: number
+}
+
+export interface Stats {
+  products: number
+  brands: number
+  units_in_stock: number
+  inventory_value: number
+  low_stock: number
+  low_stock_threshold: number
+}
+
+export interface AuthStatus {
+  setup_required: boolean
+}
+
+export interface AuthResponse {
+  access_token: string
+  token_type: string
+  user: User
+}
