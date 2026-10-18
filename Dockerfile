@@ -3,7 +3,10 @@ FROM node:22-alpine AS frontend-build
 
 WORKDIR /app/frontend
 
-RUN corepack enable && corepack prepare pnpm@11 --activate
+# corepack's bundled signature keys cannot verify recent pnpm releases
+# ("Cannot find matching keyid" after the signing-key rotation), so
+# install pnpm directly with npm instead.
+RUN npm install -g pnpm@11
 
 # Lockfile-first layer for dependency caching.
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
