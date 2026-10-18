@@ -1,4 +1,5 @@
 """Login and fetch one page of products to confirm seeded data via the API."""
+
 import json
 import os
 import sys
@@ -51,4 +52,6 @@ print(
     f"total={page['total']}, pages={page['pages']}, items_on_page={len(page['items'])}"
 )
 for item in page["items"][:3]:
-    print(f"   {item['brand']:12} | {item['name'][:38]:38} | ${item['price']:>8} | qty {item['quantity']}")
+    print(
+        f"   {item['brand']:12} | {item['name'][:38]:38} | ${item['price']:>8} | qty {item['quantity']}"
+    )

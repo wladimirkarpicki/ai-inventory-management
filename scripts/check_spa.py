@@ -1,4 +1,5 @@
 """Quick smoke-check for the SPA mount on the FastAPI origin."""
+
 import urllib.request
 
 

@@ -7,17 +7,18 @@ Usage (from the repo root):
     python scripts/seed_demo_data.py           # add demo data
     python scripts/seed_demo_data.py --force   # allow re-run
 """
+
 import random
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from database import get_connection_string  # noqa: E402
-from scripts.seed_data_part1 import BRANDS_PART1  # noqa: E402
-from scripts.seed_data_part2 import BRANDS_PART2  # noqa: E402
+import psycopg
 
-import psycopg  # noqa: E402
+from database import get_connection_string
+from scripts.seed_data_part1 import BRANDS_PART1
+from scripts.seed_data_part2 import BRANDS_PART2
 
 MIN_PRODUCTS = 50
 
@@ -29,7 +30,9 @@ def main() -> None:
     all_brands = {**BRANDS_PART1, **BRANDS_PART2}
     for name, items in all_brands.items():
         if len(items) < MIN_PRODUCTS:
-            raise SystemExit(f"brand {name!r} has {len(items)} products, need at least {MIN_PRODUCTS}")
+            raise SystemExit(
+                f"brand {name!r} has {len(items)} products, need at least {MIN_PRODUCTS}"
+            )
 
     with psycopg.connect(get_connection_string()) as conn:
         total = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
@@ -62,7 +65,9 @@ def main() -> None:
 
         brands_after = conn.execute("SELECT COUNT(*) FROM brands").fetchone()[0]
         products_after = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
-        print(f"Inserted {inserted} products. Totals: {brands_after} brands, {products_after} products.")
+        print(
+            f"Inserted {inserted} products. Totals: {brands_after} brands, {products_after} products."
+        )
 
 
 if __name__ == "__main__":
