@@ -25,6 +25,16 @@ function money(value: number): string {
   })
 }
 
+// Stat cards are narrow; a full "$10,388,461.13" is one unbreakable word
+// whose min-content width blows out the card grid and shoves the icon
+// badges around. Large values collapse to K/M; the exact amount stays
+// available as the hover tooltip.
+function compactMoney(value: number): string {
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`
+  if (value >= 10_000) return `$${(value / 1_000).toFixed(1)}K`
+  return money(value)
+}
+
 export function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -68,7 +78,13 @@ export function DashboardPage() {
     )
   }
 
-  const cards = [
+  const cards: {
+    title: string
+    value: string
+    exact?: string
+    icon: typeof PackageIcon
+    danger: boolean
+  }[] = [
     {
       title: "Products",
       value: stats.products.toLocaleString("en-US"),
@@ -89,7 +105,8 @@ export function DashboardPage() {
     },
     {
       title: "Inventory value",
-      value: money(stats.inventory_value),
+      value: compactMoney(stats.inventory_value),
+      exact: money(stats.inventory_value),
       icon: BanknoteIcon,
       danger: false,
     },
@@ -116,10 +133,11 @@ export function DashboardPage() {
             <CardHeader>
               <CardDescription>{card.title}</CardDescription>
               <CardTitle
+                title={card.exact}
                 className={
                   card.danger
-                    ? "text-2xl tabular-nums text-destructive"
-                    : "text-2xl tabular-nums"
+                    ? "min-w-0 truncate text-2xl tabular-nums text-destructive"
+                    : "min-w-0 truncate text-2xl tabular-nums"
                 }
               >
                 {card.value}
