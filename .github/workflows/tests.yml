@@ -74,3 +74,18 @@ jobs:
 
       - name: Build
         run: pnpm exec vite build
+
+  docker:
+    runs-on: ubuntu-latest
+
+    env:
+      SECRET_KEY: ci-only-secret-key-0123456789abcdef0123456789abcdef
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build image
+        run: docker build -t inventory-app:ci .
+
+      - name: Validate compose file
+        run: docker compose -f compose.yml config >/dev/null
