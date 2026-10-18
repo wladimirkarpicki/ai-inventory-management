@@ -15,9 +15,9 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          radix: ["radix-ui"],
-          icons: ["lucide-react"],
+        manualChunks: (id) => {
+          if (id && id.includes("radix-ui")) return "radix-ui";
+          return undefined;
         },
       },
     },
