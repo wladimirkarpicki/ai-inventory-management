@@ -1,0 +1,26 @@
+# VCS / CI
+.git
+.github
+.gitignore
+
+# Local secrets — never bake these into an image
+.env
+
+# Python
+__pycache__/
+**/__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Frontend: rebuilt inside the image
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+
+# Node artifacts
+*.log
+
+# Helper scripts (dev-only DB seed/verify tools)
+scripts/
