@@ -1,0 +1,11 @@
+# Pre-commit hooks: install once with `pip install pre-commit && pre-commit install`.
+# CI runs the same ruff checks via .github/workflows/security.yml.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.1
+    hooks:
+      - id: ruff
+        name: ruff (lint + autofix)
+        args: [--fix]
+      - id: ruff-format
+        name: ruff-format

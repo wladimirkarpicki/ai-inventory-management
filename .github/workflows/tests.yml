@@ -44,8 +44,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Run tests
-        run: python -m pytest
+      - name: Run tests with coverage
+        run: python -m pytest --cov=. --cov-report=xml --cov-report=term
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-report
+          path: coverage.xml
 
   frontend:
     runs-on: ubuntu-latest
@@ -71,6 +77,9 @@ jobs:
 
       - name: Typecheck
         run: pnpm exec tsc -b
+
+      - name: Unit tests
+        run: pnpm exec vitest run
 
       - name: Build
         run: pnpm exec vite build

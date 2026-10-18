@@ -140,7 +140,7 @@ def create_token(user_id: int, username: str) -> str:
         "username": username,
         "exp": datetime.now(UTC) + timedelta(hours=TOKEN_TTL_HOURS),
     }
-    return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+    return jwt.encode(payload, SECRET_KEY, algorithm="HS256")  # type: ignore[arg-type]  # SECRET_KEY validated at startup
 
 
 def get_current_user(
@@ -156,7 +156,7 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="Not authenticated.")
 
     try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=["HS256"])  # type: ignore[arg-type]  # SECRET_KEY validated at startup
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token.")
 
@@ -209,7 +209,7 @@ def _clear_failed_logins(username: str) -> None:
 
 
 def _user_count(db: psycopg.Connection) -> int:
-    return db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    return db.execute("SELECT COUNT(*) FROM users").fetchone()[0]  # type: ignore[index]  # single-row query by construction
 
 
 # ---------------------------------------------------------------- auth
@@ -246,9 +246,9 @@ def setup(data: SetupIn, db: psycopg.Connection = Depends(get_db)) -> dict:
     db.commit()
 
     return {
-        "access_token": create_token(row[0], data.username),
-        "token_type": "bearer",
-        "user": {"id": row[0], "username": data.username, "role": "admin"},
+        "access_token": create_token(row[0], data.username),  # type: ignore[index]  # single-row query by construction
+        "token_type": "bearer",  # nosec B105  # token_type is the OAuth2 scheme, not a password
+        "user": {"id": row[0], "username": data.username, "role": "admin"},  # type: ignore[index]  # single-row query by construction
     }
 
 
@@ -278,7 +278,7 @@ def login(data: CredentialsIn, db: psycopg.Connection = Depends(get_db)) -> dict
 
     return {
         "access_token": create_token(row[0], row[1]),
-        "token_type": "bearer",
+        "token_type": "bearer",  # nosec B105  # token_type is the OAuth2 scheme, not a password
         "user": {"id": row[0], "username": row[1], "role": row[3]},
     }
 
@@ -349,7 +349,7 @@ def create_user(
     db.commit()
 
     return {
-        "id": row[0],
+        "id": row[0],  # type: ignore[index]  # single-row query by construction
         "username": data.username,
         "role": data.role,
         "is_you": False,
@@ -374,7 +374,7 @@ def update_user(
         raise HTTPException(status_code=400, detail="Role must be user or admin.")
 
     if row[2] == "admin" and new_role != "admin":
-        admins = db.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'").fetchone()[0]
+        admins = db.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'").fetchone()[0]  # type: ignore[index]  # single-row query by construction
 
         if admins == 1:
             raise HTTPException(
@@ -415,7 +415,7 @@ def delete_user(
         raise HTTPException(status_code=404, detail="User not found.")
 
     if row[0] == "admin":
-        admins = db.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'").fetchone()[0]
+        admins = db.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'").fetchone()[0]  # type: ignore[index]  # single-row query by construction
 
         if admins == 1:
             raise HTTPException(
@@ -479,7 +479,7 @@ def create_brand(
     row = db.execute("INSERT INTO brands (name) VALUES (%s) RETURNING id", (data.name,)).fetchone()
     db.commit()
 
-    return {"id": row[0], "name": data.name, "product_count": 0}
+    return {"id": row[0], "name": data.name, "product_count": 0}  # type: ignore[index]  # single-row query by construction
 
 
 @app.patch("/api/brands/{brand_id}")
@@ -510,7 +510,7 @@ def delete_brand(
     user: dict = Depends(get_current_user),
     db: psycopg.Connection = Depends(get_db),
 ) -> dict:
-    count = db.execute("SELECT COUNT(*) FROM products WHERE brand_id = %s", (brand_id,)).fetchone()[
+    count = db.execute("SELECT COUNT(*) FROM products WHERE brand_id = %s", (brand_id,)).fetchone()[  # type: ignore[index]  # single-row query by construction
         0
     ]
 
@@ -558,7 +558,7 @@ def list_products(
         "WHERE (%s = '' OR p.name ILIKE %s ESCAPE '\\' OR b.name ILIKE %s ESCAPE '\\')"
     )
 
-    total = db.execute(f"SELECT COUNT(*) {base}", (search, like, like)).fetchone()[0]
+    total = db.execute(f"SELECT COUNT(*) {base}", (search, like, like)).fetchone()[0]  # type: ignore[index]  # single-row query by construction
 
     rows = db.execute(
         f"SELECT p.id, p.brand_id, b.name, p.name, p.price, p.quantity "
@@ -603,7 +603,7 @@ def create_product(
     db.commit()
 
     return {
-        "id": row[0],
+        "id": row[0],  # type: ignore[index]  # single-row query by construction
         "brand_id": data.brand_id,
         "brand": brand[0],
         "name": data.name,
@@ -672,17 +672,17 @@ def dashboard_stats(
     user: dict = Depends(get_current_user),
     db: psycopg.Connection = Depends(get_db),
 ) -> dict:
-    product_count = db.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+    product_count = db.execute("SELECT COUNT(*) FROM products").fetchone()[0]  # type: ignore[index]  # single-row query by construction
 
-    brand_count = db.execute("SELECT COUNT(*) FROM brands").fetchone()[0]
+    brand_count = db.execute("SELECT COUNT(*) FROM brands").fetchone()[0]  # type: ignore[index]  # single-row query by construction
 
-    unit_count = db.execute("SELECT COALESCE(SUM(quantity), 0) FROM products").fetchone()[0]
+    unit_count = db.execute("SELECT COALESCE(SUM(quantity), 0) FROM products").fetchone()[0]  # type: ignore[index]  # single-row query by construction
 
-    total_value = db.execute("SELECT COALESCE(SUM(price * quantity), 0) FROM products").fetchone()[
+    total_value = db.execute("SELECT COALESCE(SUM(price * quantity), 0) FROM products").fetchone()[  # type: ignore[index]  # single-row query by construction
         0
     ]
 
-    low_stock = db.execute(
+    low_stock = db.execute(  # type: ignore[index]  # single-row query by construction
         "SELECT COUNT(*) FROM products WHERE quantity < %s",
         (LOW_STOCK_THRESHOLD,),
     ).fetchone()[0]
