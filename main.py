@@ -13,6 +13,7 @@ import os
 import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Iterator, List, Optional
 
 import jwt
@@ -20,8 +21,9 @@ import psycopg
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -781,6 +783,42 @@ def export_products_csv(
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------- SPA
+
+
+# Serve the built React app (frontend/dist) from this same origin so the
+# production-style deployment is a single process on one port. Registered
+# after every /api route, so the JSON API keeps precedence. If the dist
+# folder is absent (dev without a frontend build), the API works as before.
+_FRONTEND_DIST = Path(__file__).resolve().parent / "frontend" / "dist"
+
+if _FRONTEND_DIST.is_dir():
+    if (_FRONTEND_DIST / "assets").is_dir():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=_FRONTEND_DIST / "assets"),
+            name="spa-assets",
+        )
+
+    @app.get("/{spa_path:path}", include_in_schema=False)
+    def spa(spa_path: str) -> FileResponse:
+        """
+        Serve a real file from dist, or fall back to index.html so
+        client-side routes like /login resolve on hard refresh.
+        """
+
+        candidate = (_FRONTEND_DIST / spa_path).resolve()
+
+        if (
+            spa_path
+            and str(candidate).startswith(str(_FRONTEND_DIST))
+            and candidate.is_file()
+        ):
+            return FileResponse(candidate)
+
+        return FileResponse(_FRONTEND_DIST / "index.html")
 
 
 if __name__ == "__main__":
