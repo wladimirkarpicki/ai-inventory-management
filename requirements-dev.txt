@@ -1,2 +1,6 @@
 pytest>=9.1.1
 httpx>=0.28.1
+ruff>=0.6.0
+mypy>=1.11.0
+bandit>=1.7.0
+safety>=3.2.0
