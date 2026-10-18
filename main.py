@@ -11,10 +11,10 @@ import csv
 import io
 import os
 import time
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
-from typing import Iterator, List, Optional
 
 import jwt
 import psycopg
@@ -29,21 +29,17 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from database import get_connection_string
 
-
 load_dotenv()
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 if not SECRET_KEY:
-    raise RuntimeError(
-        "SECRET_KEY is not set. "
-        "Add SECRET_KEY=<random value> to your .env file."
-    )
+    raise RuntimeError("SECRET_KEY is not set. Add SECRET_KEY=<random value> to your .env file.")
 
 if len(SECRET_KEY) < 32:
     raise RuntimeError(
         "SECRET_KEY is too short. Generate a strong one with "
-        "python -c \"import secrets; print(secrets.token_hex(32))\""
+        'python -c "import secrets; print(secrets.token_hex(32))"'
     )
 
 TOKEN_TTL_HOURS = 12
@@ -111,8 +107,8 @@ class UserCreateIn(BaseModel):
 
 
 class UserPatchIn(BaseModel):
-    role: Optional[str] = None
-    password: Optional[str] = Field(default=None, min_length=8)
+    role: str | None = None
+    password: str | None = Field(default=None, min_length=8)
 
 
 class PasswordChangeIn(BaseModel):
@@ -142,13 +138,13 @@ def create_token(user_id: int, username: str) -> str:
     payload = {
         "sub": str(user_id),
         "username": username,
-        "exp": datetime.now(timezone.utc) + timedelta(hours=TOKEN_TTL_HOURS),
+        "exp": datetime.now(UTC) + timedelta(hours=TOKEN_TTL_HOURS),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
 
 def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: psycopg.Connection = Depends(get_db),
 ) -> dict:
     """
@@ -160,9 +156,7 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="Not authenticated.")
 
     try:
-        payload = jwt.decode(
-            credentials.credentials, SECRET_KEY, algorithms=["HS256"]
-        )
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=["HS256"])
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token.")
 
@@ -240,18 +234,13 @@ def setup(data: SetupIn, db: psycopg.Connection = Depends(get_db)) -> dict:
         raise HTTPException(status_code=400, detail="Setup is already completed.")
 
     if len(data.password) < 8:
-        raise HTTPException(
-            status_code=400, detail="Password must be at least 8 characters."
-        )
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
 
-    if db.execute(
-        "SELECT 1 FROM users WHERE username = %s", (data.username,)
-    ).fetchone():
+    if db.execute("SELECT 1 FROM users WHERE username = %s", (data.username,)).fetchone():
         raise HTTPException(status_code=400, detail="Username already taken.")
 
     row = db.execute(
-        "INSERT INTO users (username, password_hash, role) "
-        "VALUES (%s, %s, 'admin') RETURNING id",
+        "INSERT INTO users (username, password_hash, role) VALUES (%s, %s, 'admin') RETURNING id",
         (data.username, generate_password_hash(data.password)),
     ).fetchone()
     db.commit()
@@ -309,9 +298,7 @@ def change_password(
     Self-service password change; requires the current password.
     """
 
-    row = db.execute(
-        "SELECT password_hash FROM users WHERE id = %s", (user["id"],)
-    ).fetchone()
+    row = db.execute("SELECT password_hash FROM users WHERE id = %s", (user["id"],)).fetchone()
 
     if row is None:
         raise HTTPException(status_code=401, detail="Account no longer exists.")
@@ -336,13 +323,10 @@ def list_users(
     admin: dict = Depends(require_admin),
     db: psycopg.Connection = Depends(get_db),
 ) -> list:
-    rows = db.execute(
-        "SELECT id, username, role FROM users ORDER BY id"
-    ).fetchall()
+    rows = db.execute("SELECT id, username, role FROM users ORDER BY id").fetchall()
 
     return [
-        {"id": r[0], "username": r[1], "role": r[2], "is_you": r[0] == admin["id"]}
-        for r in rows
+        {"id": r[0], "username": r[1], "role": r[2], "is_you": r[0] == admin["id"]} for r in rows
     ]
 
 
@@ -355,14 +339,11 @@ def create_user(
     if data.role not in ("user", "admin"):
         raise HTTPException(status_code=400, detail="Role must be user or admin.")
 
-    if db.execute(
-        "SELECT 1 FROM users WHERE username = %s", (data.username,)
-    ).fetchone():
+    if db.execute("SELECT 1 FROM users WHERE username = %s", (data.username,)).fetchone():
         raise HTTPException(status_code=400, detail="Username already taken.")
 
     row = db.execute(
-        "INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s) "
-        "RETURNING id",
+        "INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s) RETURNING id",
         (data.username, generate_password_hash(data.password), data.role),
     ).fetchone()
     db.commit()
@@ -382,9 +363,7 @@ def update_user(
     admin: dict = Depends(require_admin),
     db: psycopg.Connection = Depends(get_db),
 ) -> dict:
-    row = db.execute(
-        "SELECT id, username, role FROM users WHERE id = %s", (user_id,)
-    ).fetchone()
+    row = db.execute("SELECT id, username, role FROM users WHERE id = %s", (user_id,)).fetchone()
 
     if row is None:
         raise HTTPException(status_code=404, detail="User not found.")
@@ -395,9 +374,7 @@ def update_user(
         raise HTTPException(status_code=400, detail="Role must be user or admin.")
 
     if row[2] == "admin" and new_role != "admin":
-        admins = db.execute(
-            "SELECT COUNT(*) FROM users WHERE role = 'admin'"
-        ).fetchone()[0]
+        admins = db.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'").fetchone()[0]
 
         if admins == 1:
             raise HTTPException(
@@ -411,9 +388,7 @@ def update_user(
             (new_role, generate_password_hash(data.password), user_id),
         )
     else:
-        db.execute(
-            "UPDATE users SET role = %s WHERE id = %s", (new_role, user_id)
-        )
+        db.execute("UPDATE users SET role = %s WHERE id = %s", (new_role, user_id))
 
     db.commit()
 
@@ -434,17 +409,13 @@ def delete_user(
     if user_id == admin["id"]:
         raise HTTPException(status_code=400, detail="You cannot delete yourself.")
 
-    row = db.execute(
-        "SELECT role FROM users WHERE id = %s", (user_id,)
-    ).fetchone()
+    row = db.execute("SELECT role FROM users WHERE id = %s", (user_id,)).fetchone()
 
     if row is None:
         raise HTTPException(status_code=404, detail="User not found.")
 
     if row[0] == "admin":
-        admins = db.execute(
-            "SELECT COUNT(*) FROM users WHERE role = 'admin'"
-        ).fetchone()[0]
+        admins = db.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'").fetchone()[0]
 
         if admins == 1:
             raise HTTPException(
@@ -465,9 +436,7 @@ def reset_user_password(
     admin: dict = Depends(require_admin),
     db: psycopg.Connection = Depends(get_db),
 ) -> dict:
-    row = db.execute(
-        "SELECT id FROM users WHERE id = %s", (user_id,)
-    ).fetchone()
+    row = db.execute("SELECT id FROM users WHERE id = %s", (user_id,)).fetchone()
 
     if row is None:
         raise HTTPException(status_code=404, detail="User not found.")
@@ -495,9 +464,7 @@ def list_brands(
         "GROUP BY b.id, b.name ORDER BY b.name"
     ).fetchall()
 
-    return [
-        {"id": r[0], "name": r[1], "product_count": r[2]} for r in rows
-    ]
+    return [{"id": r[0], "name": r[1], "product_count": r[2]} for r in rows]
 
 
 @app.post("/api/brands")
@@ -506,14 +473,10 @@ def create_brand(
     user: dict = Depends(get_current_user),
     db: psycopg.Connection = Depends(get_db),
 ) -> dict:
-    if db.execute(
-        "SELECT 1 FROM brands WHERE LOWER(name) = LOWER(%s)", (data.name,)
-    ).fetchone():
+    if db.execute("SELECT 1 FROM brands WHERE LOWER(name) = LOWER(%s)", (data.name,)).fetchone():
         raise HTTPException(status_code=400, detail="This brand already exists.")
 
-    row = db.execute(
-        "INSERT INTO brands (name) VALUES (%s) RETURNING id", (data.name,)
-    ).fetchone()
+    row = db.execute("INSERT INTO brands (name) VALUES (%s) RETURNING id", (data.name,)).fetchone()
     db.commit()
 
     return {"id": row[0], "name": data.name, "product_count": 0}
@@ -526,9 +489,7 @@ def update_brand(
     user: dict = Depends(get_current_user),
     db: psycopg.Connection = Depends(get_db),
 ) -> dict:
-    if db.execute(
-        "SELECT 1 FROM brands WHERE id = %s", (brand_id,)
-    ).fetchone() is None:
+    if db.execute("SELECT 1 FROM brands WHERE id = %s", (brand_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Brand not found.")
 
     if db.execute(
@@ -549,9 +510,9 @@ def delete_brand(
     user: dict = Depends(get_current_user),
     db: psycopg.Connection = Depends(get_db),
 ) -> dict:
-    count = db.execute(
-        "SELECT COUNT(*) FROM products WHERE brand_id = %s", (brand_id,)
-    ).fetchone()[0]
+    count = db.execute("SELECT COUNT(*) FROM products WHERE brand_id = %s", (brand_id,)).fetchone()[
+        0
+    ]
 
     if count > 0:
         raise HTTPException(
@@ -559,9 +520,7 @@ def delete_brand(
             detail="This brand still has products and cannot be deleted.",
         )
 
-    if db.execute(
-        "SELECT 1 FROM brands WHERE id = %s", (brand_id,)
-    ).fetchone() is None:
+    if db.execute("SELECT 1 FROM brands WHERE id = %s", (brand_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Brand not found.")
 
     db.execute("DELETE FROM brands WHERE id = %s", (brand_id,))
@@ -599,9 +558,7 @@ def list_products(
         "WHERE (%s = '' OR p.name ILIKE %s ESCAPE '\\' OR b.name ILIKE %s ESCAPE '\\')"
     )
 
-    total = db.execute(
-        f"SELECT COUNT(*) {base}", (search, like, like)
-    ).fetchone()[0]
+    total = db.execute(f"SELECT COUNT(*) {base}", (search, like, like)).fetchone()[0]
 
     rows = db.execute(
         f"SELECT p.id, p.brand_id, b.name, p.name, p.price, p.quantity "
@@ -633,9 +590,7 @@ def create_product(
     user: dict = Depends(get_current_user),
     db: psycopg.Connection = Depends(get_db),
 ) -> dict:
-    brand = db.execute(
-        "SELECT name FROM brands WHERE id = %s", (data.brand_id,)
-    ).fetchone()
+    brand = db.execute("SELECT name FROM brands WHERE id = %s", (data.brand_id,)).fetchone()
 
     if brand is None:
         raise HTTPException(status_code=400, detail="Selected brand does not exist.")
@@ -664,21 +619,16 @@ def update_product(
     user: dict = Depends(get_current_user),
     db: psycopg.Connection = Depends(get_db),
 ) -> dict:
-    if db.execute(
-        "SELECT 1 FROM products WHERE id = %s", (product_id,)
-    ).fetchone() is None:
+    if db.execute("SELECT 1 FROM products WHERE id = %s", (product_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Product not found.")
 
-    brand = db.execute(
-        "SELECT name FROM brands WHERE id = %s", (data.brand_id,)
-    ).fetchone()
+    brand = db.execute("SELECT name FROM brands WHERE id = %s", (data.brand_id,)).fetchone()
 
     if brand is None:
         raise HTTPException(status_code=400, detail="Selected brand does not exist.")
 
     db.execute(
-        "UPDATE products SET brand_id = %s, name = %s, price = %s, quantity = %s "
-        "WHERE id = %s",
+        "UPDATE products SET brand_id = %s, name = %s, price = %s, quantity = %s WHERE id = %s",
         (
             data.brand_id,
             data.name,
@@ -705,9 +655,7 @@ def delete_product(
     user: dict = Depends(get_current_user),
     db: psycopg.Connection = Depends(get_db),
 ) -> dict:
-    if db.execute(
-        "SELECT 1 FROM products WHERE id = %s", (product_id,)
-    ).fetchone() is None:
+    if db.execute("SELECT 1 FROM products WHERE id = %s", (product_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Product not found.")
 
     db.execute("DELETE FROM products WHERE id = %s", (product_id,))
@@ -724,19 +672,15 @@ def dashboard_stats(
     user: dict = Depends(get_current_user),
     db: psycopg.Connection = Depends(get_db),
 ) -> dict:
-    product_count = db.execute(
-        "SELECT COUNT(*) FROM products"
-    ).fetchone()[0]
+    product_count = db.execute("SELECT COUNT(*) FROM products").fetchone()[0]
 
     brand_count = db.execute("SELECT COUNT(*) FROM brands").fetchone()[0]
 
-    unit_count = db.execute(
-        "SELECT COALESCE(SUM(quantity), 0) FROM products"
-    ).fetchone()[0]
+    unit_count = db.execute("SELECT COALESCE(SUM(quantity), 0) FROM products").fetchone()[0]
 
-    total_value = db.execute(
-        "SELECT COALESCE(SUM(price * quantity), 0) FROM products"
-    ).fetchone()[0]
+    total_value = db.execute("SELECT COALESCE(SUM(price * quantity), 0) FROM products").fetchone()[
+        0
+    ]
 
     low_stock = db.execute(
         "SELECT COUNT(*) FROM products WHERE quantity < %s",
@@ -811,11 +755,7 @@ if _FRONTEND_DIST.is_dir():
 
         candidate = (_FRONTEND_DIST / spa_path).resolve()
 
-        if (
-            spa_path
-            and str(candidate).startswith(str(_FRONTEND_DIST))
-            and candidate.is_file()
-        ):
+        if spa_path and str(candidate).startswith(str(_FRONTEND_DIST)) and candidate.is_file():
             return FileResponse(candidate)
 
         return FileResponse(_FRONTEND_DIST / "index.html")

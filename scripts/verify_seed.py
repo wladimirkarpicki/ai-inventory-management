@@ -1,11 +1,15 @@
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import psycopg
+
 from database import get_connection_string
 
 with psycopg.connect(get_connection_string()) as c:
-    rows = c.execute("SELECT brand_id, COUNT(*) FROM products GROUP BY brand_id ORDER BY COUNT(*) DESC LIMIT 5").fetchall()
+    rows = c.execute(
+        "SELECT brand_id, COUNT(*) FROM products GROUP BY brand_id ORDER BY COUNT(*) DESC LIMIT 5"
+    ).fetchall()
     for brand_id, count in rows:
         print(f"brand_id={brand_id} count={count}")
     total = c.execute("SELECT COUNT(*) FROM products").fetchone()[0]

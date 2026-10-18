@@ -2,7 +2,6 @@ import os
 
 from dotenv import load_dotenv
 
-
 load_dotenv()
 
 
@@ -17,11 +16,6 @@ def get_connection_string():
     password = os.getenv("DATABASE_PASSWORD")
 
     if not all([host, database, user, password]):
-        raise ValueError(
-            "Database configuration is incomplete. "
-            "Check your .env file."
-        )
+        raise ValueError("Database configuration is incomplete. Check your .env file.")
 
-    return (
-        f"postgresql://{user}:{password}@{host}/{database}"
-    )
+    return f"postgresql://{user}:{password}@{host}/{database}"

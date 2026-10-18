@@ -7,11 +7,10 @@ so main.py connects to the test database transparently.
 """
 
 import pytest
+from conftest import ADMIN_PASSWORD, ADMIN_USERNAME, REGULAR_PASSWORD, REGULAR_USERNAME
 from fastapi.testclient import TestClient
 
 import main as main_module
-
-from conftest import ADMIN_PASSWORD, ADMIN_USERNAME, REGULAR_PASSWORD, REGULAR_USERNAME
 
 
 @pytest.fixture()
@@ -70,9 +69,7 @@ def user_api(api, admin_api):
 
 
 def _login(api, username, password):
-    response = api.post(
-        "/api/auth/login", json={"username": username, "password": password}
-    )
+    response = api.post("/api/auth/login", json={"username": username, "password": password})
 
     assert response.status_code == 200
 
@@ -272,12 +269,7 @@ def test_brand_crud_blocks_deleting_a_brand_with_products(api, admin_api):
     assert response.status_code == 200
     brand_id = response.json()["id"]
 
-    assert (
-        admin_api.post(
-            "/api/brands", json={"name": "acme"}
-        ).status_code
-        == 400
-    )
+    assert admin_api.post("/api/brands", json={"name": "acme"}).status_code == 400
 
     product = admin_api.post(
         "/api/products",
@@ -341,9 +333,7 @@ def test_product_sorting_by_price_desc(api, admin_api):
             },
         )
 
-    response = admin_api.get(
-        "/api/products", params={"sort": "price", "direction": "desc"}
-    )
+    response = admin_api.get("/api/products", params={"sort": "price", "direction": "desc"})
 
     prices = [item["price"] for item in response.json()["items"]]
 
