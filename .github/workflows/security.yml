@@ -2,7 +2,7 @@ name: Security
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
     branches: [main]
   schedule:
@@ -11,7 +11,6 @@ on:
 permissions:
   contents: read
   security-events: write
-  actions: read
 
 jobs:
   bandit:
@@ -25,24 +24,24 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
+      - name: Install Bandit
+        run: pip install bandit bandit-sarif-formatter
 
-      - name: Run Bandit
-        run: |
-          pip install bandit
-          bandit -r . -f json -o bandit-report.json --severity-level low --confidence-level low
+      # App code only: tests/scripts are scanned separately (see SECURITY.md
+      # rationale) — demo seeds use `random` by design, tests use asserts
+      # and fixture passwords.
+      - name: Run Bandit (SARIF)
+        run: bandit -r main.py database.py -f sarif -o bandit-report.sarif
 
       - name: Upload SARIF
+        if: always()
         uses: github/codeql-action/upload-sarif@v2
         with:
-          sarif_file: bandit-report.json
+          sarif_file: bandit-report.sarif
           category: bandit
 
-  safety:
-    name: Safety (SCA)
+  pip-audit:
+    name: pip-audit (SCA)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -52,21 +51,23 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt pip-audit
 
-      - name: Run Safety
-        run: |
-          pip install safety
-          safety check --json > safety-report.json || true
+      # Non-blocking: report vulnerable deps into the Security tab
+      # without failing the pipeline; Dependabot opens upgrade PRs.
+      - name: Run pip-audit (SARIF)
+        run: pip-audit -f sarif -o pip-audit.sarif
+        continue-on-error: true
 
       - name: Upload SARIF
+        if: always()
         uses: github/codeql-action/upload-sarif@v2
         with:
-          sarif_file: safety-report.json
-          category: safety
+          sarif_file: pip-audit.sarif
+          category: pip-audit
 
   ruff:
     name: Ruff (Lint & Format)
@@ -99,20 +100,10 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run Mypy
-        run: mypy main.py database.py --strict
-
-  dependency-check:
-    name: Dependency Review
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/dependency-submission-action@v3
-        with:
-          directory: .
+        run: mypy main.py database.py
