@@ -1,0 +1,28 @@
+target-version = "py313"
+line-length = 100
+
+[lint]
+select = [
+    "F",    # pyflakes (unused imports, undefined names)
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "I",    # isort (import sorting)
+    "UP",   # pyupgrade (modern Python)
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "B008", # Do not perform function call in argument defaults (FastAPI Depends() is the standard pattern)
+    "E501", # line too long (handled by formatter)
+]
+
+[lint.isort]
+case-sensitive = true
+force-sort-within-sections = false
+
+[lint.per-file-ignores]
+"scripts/*.py" = ["E402"]  # sys.path manipulation before imports
+"__init__.py" = ["F401"]   # re-exports
+
+[format]
+quote-style = "double"
+indent-style = "space"
