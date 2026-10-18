@@ -1,16 +1,49 @@
-﻿version: 2
+version: 2
 updates:
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "wladimirkarpicki"
+    assignees:
+      - "wladimirkarpicki"
+    commit-message:
+      prefix: "deps(pip)"
+      include: "scope"
+      include-scope: true
+
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "wladimirkarpicki"
+    assignees:
+      - "wladimirkarpicki"
+    commit-message:
+      prefix: "deps(frontend)"
+      include: "scope"
+      include-scope: true
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "wladimirkarpicki"
+    assignees:
+      - "wladimirkarpicki"
+    commit-message:
+      prefix: "deps(actions)"
+      include: "scope"
+      include-scope: true
