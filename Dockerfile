@@ -9,7 +9,7 @@ WORKDIR /app/frontend
 RUN npm install -g pnpm@11
 
 # Lockfile-first layer for dependency caching.
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY frontend/ ./
