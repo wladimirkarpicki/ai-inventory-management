@@ -449,3 +449,15 @@ def test_csv_export_requires_auth_and_has_header(api, admin_api):
 
 def test_health_is_open(api):
     assert api.get("/api/health").json() == {"status": "ok"}
+
+
+def test_ready_reports_database_up(api):
+    response = api.get("/api/ready")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready", "database": "up"}
+
+
+def test_metrics_exposed(api):
+    response = api.get("/metrics")
+    assert response.status_code == 200
+    assert "http_request" in response.text

@@ -4,3 +4,4 @@ fastapi>=0.143.1
 uvicorn>=0.54.0
 PyJWT>=2.15.1
 Werkzeug>=3.1.9
+prometheus-fastapi-instrumentator>=7.0.0

@@ -55,12 +55,60 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      # Runtime image is python:3.13-slim without curl; use stdlib urllib.
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=5)"]
+      # Readiness probe: DB must answer too. Slim image has no curl; stdlib urllib.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/ready', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
+
+  # Observability stack — opt-in: docker compose --profile monitoring up
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    networks:
+      - backend
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "3000:3000"
+    environment:
+      # Override in .env; weak default only for a local opt-in stack.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafdata:/var/lib/grafana
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   backend:
@@ -68,3 +116,5 @@ networks:
 
 volumes:
   pgdata:
+  promdata:
+  grafdata:
