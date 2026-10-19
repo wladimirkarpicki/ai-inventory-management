@@ -31,18 +31,19 @@
 - После сессии / задачи обновлять файл.
 - Не полагаться на chat-history; файлы — источник истины.
 
-## 5. Current Project Status (2026-10-19, updated after Phase 4)
+## 5. Current Project Status (2026-10-19 — 5-PHASE PLAN COMPLETE)
 - ✅ PHASE 1 (security CI) — MERGED via PR #28
 - ✅ vite 8.3.4 + sonner 2.0.8 + vitest 4.1.x migration — MERGED (0509162); Dependabot #22/#23 satisfied
 - ✅ PHASE 2 (docker optimization) — MERGED (0509162)
-- ✅ PHASE 3 (CI quality green) — MERGED (0684a3b): security.yml fixed, coverage 90% artifact, vitest in CI, pre-commit; CI ALL-GREEN (6/6 jobs) at 0684a3b
-- ✅ PHASE 4 (devops) — CLOSED (2026-10-19, user decisions): /api/ready DB-probe, Prometheus /metrics, monitoring compose profile (prometheus v3.15.0 + grafana 13.2.4), backup/monitor scripts, .env.template, .gitattributes LF — MERGED (c5343e2), CI 7/7 green
+- ✅ PHASE 3 (CI quality green) — MERGED (0684a3b): security.yml fixed, coverage 90% artifact, vitest in CI, pre-commit
+- ✅ PHASE 4 (devops) — CLOSED (user decisions): /api/ready DB-probe, Prometheus /metrics, monitoring compose profile (prometheus v3.15.0 + grafana 13.2.4), backup/monitor scripts, .env.template, .gitattributes LF — MERGED (c5343e2)
   - ❌ nginx+SSL — DECLINED by user ("приложение работает локально"); revisit when a domain/production deployment appears
   - ❌ redis — REJECTED, no consumer (YAGNI, user confirmed); revisit trigger: 2+ app replicas (shared login rate-limit/cache)
-  - ⏸ external (not blocking): runtime-verify backup.sh/monitor.sh + `--profile monitoring` after user restarts Docker Desktop (daemon down 2026-10-19; CI docker job already builds the image)
+- ✅ PHASE 5 (documentation) — MERGED (180bfdb): docs/CI.md (pipeline overview), docs/OPERATIONS.md (runbook), README refresh (Security badge, React 19, Docker section, coverage/vitest/pre-commit)
+- ✅ CI state at every merge verified green via GitHub API (last: Tests+Security at 180bfdb)
 - ✅ DB seeded: 23 brands, 1013 products; dashboard overflow fixed
-- ⚠️ Docker Desktop on this machine is DOWN ("unable to start", WSL E_NETNAME_DELETED) — local image build/live script run impossible; CI docker job covers image build; re-verify backup.sh/monitor.sh runtime + `--profile monitoring` stack after Docker Desktop restart
-- ⚠️ Stray untracked `AGENT_PLAN.md` in workdir AND in ai-delivery-assistant (mojibake duplicates from an earlier session) — DO NOT commit; single source of truth is this file
+- 🎉 ALL 5 PHASES OF THE IMPROVEMENT PLAN ARE COMPLETE. Project enters maintenance mode.
+- ⚠️ Open external items: (1) runtime-verify backup.sh/monitor.sh + `--profile monitoring` after Docker Desktop restart (daemon down 2026-10-19, WSL E_NETNAME_DELETED; CI docker job already builds the image); (2) stray untracked `AGENT_PLAN.md` in workdir AND in ai-delivery-assistant (mojibake duplicates) — DO NOT commit; single source of truth is this file; deletion awaits user confirmation
 
 ### Phase 4 Evidence (feat/devops)
 - pytest 26/26 (new: test_ready_reports_database_up, test_metrics_exposed); mypy/ruff/format green; bandit app-only clean; pip-audit requirements.txt: 0 vulns (incl. new instrumentator dep)
@@ -56,11 +57,12 @@
 - CI iteration lessons: (1) pin `bandit-sarif-formatter>=1.5.0` was a GUESS — only 1.0.0–1.1.1 exist → `>=1.1.1`; always verify pins with `pip install --dry-run` before pushing; (2) pip-audit has NO `-f sarif` output → JSON artifact instead; upload-artifact latest is v7
 - CI state after Phase 3 merge: ALL 6 jobs GREEN (Security: bandit/mypy/ruff/pip-audit; Tests: pytest/docker/frontend)
 
-## 6. Next Steps
-1. ✅ feat/devops MERGED (c5343e2), CI 7/7 green
-2. IN PROGRESS — PHASE 5 Documentation (branch: feat/docs): docs/CI.md (pipeline overview), docs/OPERATIONS.md (runbook: backup/restore, monitoring, health semantics), README update (docker, env.template, pre-commit, coverage, monitoring profile)
-3. After Docker Desktop restart: runtime-verify scripts/backup.sh + monitor.sh + monitoring stack
-4. Cleanup: delete stale local branches (pr22-test, pr27-test, test-vite-sonner, feat/security-ci, feat/docker-opt, feat/full-ci, feat/devops, feat/docs) after Phase 5 merge + CI green
+## 6. Next Steps (maintenance mode)
+1. ✅ Plan complete: Phases 1-5 merged, CI green at every step
+2. NEW TASKS arrive the usual way: read this plan → branch → work → verify → merge → update plan
+3. Scheduled/routine: merge Dependabot PRs (weekly, CI-gated); keep an eye on the weekly Security scan (Mondays 02:00 UTC)
+4. One-time after Docker Desktop restart: runtime-verify `scripts/backup.sh`, `scripts/monitor.sh`, and `docker compose --profile monitoring up` (grafana :3000)
+5. Optional tidy-up (user confirmation needed): delete stray `AGENT_PLAN.md` duplicates (both projects); old merged `feature/*` local branches (project history, all merged — deletion is cosmetic)
 
 ## 7. Новый запрос = 8 шагов
 1. Прочитай план.
