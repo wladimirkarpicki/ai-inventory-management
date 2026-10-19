@@ -1,0 +1,7 @@
+# Shell scripts run inside Linux containers — CRLF breaks the shebang.
+*.sh text eol=lf
+
+# Compose/monitoring configs are consumed by Linux daemons; keep them LF too.
+*.yml text eol=lf
+Dockerfile text eol=lf
+Dockerfile.dev text eol=lf
