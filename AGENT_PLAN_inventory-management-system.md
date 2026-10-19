@@ -1,5 +1,5 @@
 # Agent Plan — inventory-management-system
-Last updated: 2026-10-19 18:55
+Last updated: 2026-10-19 19:15
 Process: глобальный AGENTS.md — C:\Users\Wladimir\.dsh\AGENTS.md | Synced: 2026-10-19 18:55 (= Last updated глобала при консолидации)
 Роль: проектный агент (inventory-management-system) — работа с кодинг-сабагентами; задачи — от главного агента (Team Lead) или пользователя.
 # Долговременная память агента | Источник истины: этот файл | Читать ПЕРВЫМ при каждом запуске
@@ -35,8 +35,13 @@ ID / Название / Цель (1 предложение) / Scope / Acceptance
 
 ---
 
-## Status (2026-10-19 18:30)
+## Status (2026-10-19 19:15)
 - 🎉 5-фазный план улучшений ВЫПОЛНЕН ПОЛНОСТЬЮ; проект в maintenance mode.
+- CI: Tests + Security зелёные на main (92a8d68); каждый мерж проверен через GitHub API.
+- Live stack docker compose RUNNING: app (healthy) + db (healthy) + grafana:3000 + prometheus (scrapes app:8000/metrics, job=inventory-app, up).
+- Скрипты верифицированы через WSL bash: monitor.sh → 3/3 OK; backup.sh → валидный pg_dump в backups/.
+- Ветки очищены (local + remote): все feat/* удалены, остался только main.
+- Кодовых долгов нет: pytest 26/26, vitest 8/8, pip-audit 0 уязвимостей. Открытых PR: 0.
 - CI: Tests + Security зелёные на main (2b275d4); каждый мерж проверен по jobs через GitHub API.
 - Active focus: —; Blocked: —; Risks: —.
 - ✅ Smoke-тест ops-инструментов после перезапуска Docker Desktop — ВЫПОЛНЕН (2026-10-19 18:20):
