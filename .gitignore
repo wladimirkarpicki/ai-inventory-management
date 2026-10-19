@@ -10,6 +10,9 @@ coverage.xml
 .coverage
 *.sarif
 
+# Local database dumps (scripts/backup.sh)
+backups/
+
 # Frontend (React SPA)
 frontend/node_modules/
 frontend/dist/

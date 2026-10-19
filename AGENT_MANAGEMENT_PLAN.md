@@ -31,30 +31,35 @@
 - После сессии / задачи обновлять файл.
 - Не полагаться на chat-history; файлы — источник истины.
 
-## 5. Current Project Status (2026-10-19, updated after Phase 3)
+## 5. Current Project Status (2026-10-19, updated after Phase 4)
 - ✅ PHASE 1 (security CI) — MERGED via PR #28
-- ✅ vite 8.3.4 + sonner 2.0.8 + vitest 4.1.x migration — MERGED to main (0509162); Dependabot #22/#23 satisfied
-- ✅ PHASE 2 (docker optimization) — MERGED to main (0509162): healthchecks (python urllib), Dockerfile.dev, compose hardening (networks/limits/logging)
-- ✅ PHASE 3 (CI quality green) — DONE on `feat/full-ci`: security.yml fixed (mypy no-strict + 17 targeted ignores in main.py; bandit app-only SARIF via bandit-sarif-formatter; safety→pip-audit non-blocking; dep-submission removed), tests.yml +coverage(90%)/artifact +vitest, .pre-commit-config.yaml (ruff + ruff-format)
-- ✅ Fix: vite.config.ts manualChunks function syntax merged — main Tests workflow GREEN again
-- ✅ DB seeded: 23 brands, 1013 products; dashboard overflow fixed; Docker image built locally
-- ⚠️ `/api/health` is liveness-only (no DB probe) — candidate for Phase 4
-- ⚠️ Stray untracked `AGENT_PLAN.md` in workdir (mojibake duplicate from an earlier session) — DO NOT commit; single source of truth is this file
+- ✅ vite 8.3.4 + sonner 2.0.8 + vitest 4.1.x migration — MERGED (0509162); Dependabot #22/#23 satisfied
+- ✅ PHASE 2 (docker optimization) — MERGED (0509162)
+- ✅ PHASE 3 (CI quality green) — MERGED (0684a3b): security.yml fixed, coverage 90% artifact, vitest in CI, pre-commit; CI ALL-GREEN (6/6 jobs) at 0684a3b
+- ✅ PHASE 4 (devops core) — DONE on `feat/devops`: liveness/readiness split (/api/health + NEW /api/ready w/ DB probe), Prometheus instrumentation (/metrics via prometheus-fastapi-instrumentator 8.1.0), monitoring compose profile (prometheus v3.15.0 + grafana 13.2.4, opt-in `--profile monitoring`), scripts/backup.sh (pg_dump + 14d retention), scripts/monitor.sh, .env.template
+- ⏸ Phase 4 deferred items: nginx+SSL (needs user's domain/cert decisions), redis (no consumer yet — candidates: distributed login rate-limit, cache)
+- ✅ DB seeded: 23 brands, 1013 products; dashboard overflow fixed
+- ⚠️ Docker Desktop on this machine is DOWN ("unable to start", WSL E_NETNAME_DELETED) — local image build/live script run impossible; CI docker job covers image build; re-verify backup.sh/monitor.sh runtime + `--profile monitoring` stack after Docker Desktop restart
+- ⚠️ Stray untracked `AGENT_PLAN.md` in workdir AND in ai-delivery-assistant (mojibake duplicates from an earlier session) — DO NOT commit; single source of truth is this file
+
+### Phase 4 Evidence (feat/devops)
+- pytest 26/26 (new: test_ready_reports_database_up, test_metrics_exposed); mypy/ruff/format green; bandit app-only clean; pip-audit requirements.txt: 0 vulns (incl. new instrumentator dep)
+- compose config VALID in base AND `--profile monitoring` modes (SECRET_KEY set)
+- Image tags verified via Docker Hub API (lesson applied: no guessed pins): prom/prometheus v3.15.0, grafana/grafana 13.2.4
+- Operational design: Dockerfile HEALTHCHECK stays on /api/health (container liveness); compose healthcheck now /api/ready (stack readiness w/ DB probe) — textbook liveness/readiness split
+- Incident (repaired): a mangled pwsh path made `ruff --fix` run in the PARENT dir; it touched 5 files in ai-delivery-assistant (import-sort noise) — reverted via `git checkout -- .`, sibling repo clean. Mitigation: always QUOTE `cd "C:\...` paths in pwsh commands
 
 ### Phase 3 Evidence (feat/full-ci)
-- mypy: `Success: no issues found` (17 targeted `type: ignore` — 2× jwt SECRET_KEY validated-at-startup, 15× single-row fetchone; nosec B105 ×2 on token_type "bearer")
-- bandit app-only: 0 findings; SARIF 2.1.0 valid (1688 B) via bandit-sarif-formatter plugin — local dry-run caught missing `-f sarif` support in bandit 1.9.4
-- ruff check + `ruff format --check`: green ("14 files already formatted")
-- pytest --cov: 24/24, TOTAL coverage 90% (528 stmts, 54 miss)
-- Local CI-state check: Tests workflow success at 0509162; Security was failing on mypy/bandit/safety/dep-review — root causes all addressed in this branch
-- CI iteration lessons (first a85d2c2 run caught 2 issues, fixed in follow-up commit): (1) pin `bandit-sarif-formatter>=1.5.0` was a GUESS — only 1.0.0–1.1.1 exist → `>=1.1.1`; always verify pins with `pip install --dry-run -r requirements.txt -r requirements-dev.txt` before pushing; (2) pip-audit has NO `-f sarif` output (neither does bandit without the plugin) → pip-audit emits JSON artifact, bandit emits SARIF via plugin; upload-artifact: latest is v7
-- requirements.txt audit: pip-audit reports 0 known vulnerabilities
+- mypy: `Success: no issues found` (17 targeted `type: ignore`; nosec B105 ×2 on token_type "bearer")
+- CI iteration lessons: (1) pin `bandit-sarif-formatter>=1.5.0` was a GUESS — only 1.0.0–1.1.1 exist → `>=1.1.1`; always verify pins with `pip install --dry-run` before pushing; (2) pip-audit has NO `-f sarif` output → JSON artifact instead; upload-artifact latest is v7
+- CI state after Phase 3 merge: ALL 6 jobs GREEN (Security: bandit/mypy/ruff/pip-audit; Tests: pytest/docker/frontend)
 
 ## 6. Next Steps
-1. Merge `feat/full-ci` follow-up commit → main; verify Security + Tests workflows ALL-GREEN on GitHub Actions
-2. PHASE 4 — DevOps & Monitoring (branch: feat/devops): nginx + SSL, redis, prometheus, grafana, backup/monitor scripts, DB-probing /api/health, compose profiles for monitoring stack
-3. PHASE 5 — Documentation (branch: feat/docs): CI.md (pipeline overview), runbooks, README update (coverage/pre-commit/Docker.dev usage)
-4. Cleanup: delete stale local branches (pr22-test, pr27-test, test-vite-sonner, feat/security-ci, feat/docker-opt, feat/full-ci) after main is verified green
+1. Merge `feat/devops` → main; verify CI green (incl. docker job building image with instrumentator)
+2. PHASE 5 — Documentation (branch: feat/docs): CI.md (pipeline overview), runbooks (backup/restore, monitoring), README update (env.template, pre-commit, Docker.dev, --profile monitoring)
+3. After Docker Desktop restart: runtime-verify scripts/backup.sh + monitor.sh + monitoring stack
+4. ASK USER: nginx+SSL domain/cert decisions; whether to wire redis for distributed rate-limiting
+5. Cleanup: delete stale local branches (pr22-test, pr27-test, test-vite-sonner, feat/security-ci, feat/docker-opt, feat/full-ci, feat/devops) after main is verified green
 
 ## 7. Новый запрос = 8 шагов
 1. Прочитай план.

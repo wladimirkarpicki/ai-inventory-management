@@ -24,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
+from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel, Field
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -71,6 +72,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Prometheus metrics: GET /metrics (request counts, latency, in-progress).
+Instrumentator().instrument(app).expose(app)
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -726,7 +730,18 @@ def export_products_csv(
 
 @app.get("/api/health")
 def health() -> dict:
+    """Liveness: the process is up. No database access."""
     return {"status": "ok"}
+
+
+@app.get("/api/ready")
+def ready(db: psycopg.Connection = Depends(get_db)) -> dict:
+    """Readiness: the database must answer a trivial query (503 otherwise)."""
+    try:
+        db.execute("SELECT 1").fetchone()
+    except psycopg.Error:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    return {"status": "ready", "database": "up"}
 
 
 # ---------------------------------------------------------------- SPA

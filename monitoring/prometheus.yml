@@ -1,0 +1,15 @@
+# Prometheus scrape configuration (compose: prom/prometheus:v3.15.0).
+# The `app` target is the compose service name on the `backend` network.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: inventory-app
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["app:8000"]
