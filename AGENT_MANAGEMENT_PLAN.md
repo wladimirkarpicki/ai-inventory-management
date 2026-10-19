@@ -36,8 +36,10 @@
 - ✅ vite 8.3.4 + sonner 2.0.8 + vitest 4.1.x migration — MERGED (0509162); Dependabot #22/#23 satisfied
 - ✅ PHASE 2 (docker optimization) — MERGED (0509162)
 - ✅ PHASE 3 (CI quality green) — MERGED (0684a3b): security.yml fixed, coverage 90% artifact, vitest in CI, pre-commit; CI ALL-GREEN (6/6 jobs) at 0684a3b
-- ✅ PHASE 4 (devops core) — DONE on `feat/devops`: liveness/readiness split (/api/health + NEW /api/ready w/ DB probe), Prometheus instrumentation (/metrics via prometheus-fastapi-instrumentator 8.1.0), monitoring compose profile (prometheus v3.15.0 + grafana 13.2.4, opt-in `--profile monitoring`), scripts/backup.sh (pg_dump + 14d retention), scripts/monitor.sh, .env.template
-- ⏸ Phase 4 deferred items: nginx+SSL (needs user's domain/cert decisions), redis (no consumer yet — candidates: distributed login rate-limit, cache)
+- ✅ PHASE 4 (devops) — CLOSED (2026-10-19, user decisions): /api/ready DB-probe, Prometheus /metrics, monitoring compose profile (prometheus v3.15.0 + grafana 13.2.4), backup/monitor scripts, .env.template, .gitattributes LF — MERGED (c5343e2), CI 7/7 green
+  - ❌ nginx+SSL — DECLINED by user ("приложение работает локально"); revisit when a domain/production deployment appears
+  - ❌ redis — REJECTED, no consumer (YAGNI, user confirmed); revisit trigger: 2+ app replicas (shared login rate-limit/cache)
+  - ⏸ external (not blocking): runtime-verify backup.sh/monitor.sh + `--profile monitoring` after user restarts Docker Desktop (daemon down 2026-10-19; CI docker job already builds the image)
 - ✅ DB seeded: 23 brands, 1013 products; dashboard overflow fixed
 - ⚠️ Docker Desktop on this machine is DOWN ("unable to start", WSL E_NETNAME_DELETED) — local image build/live script run impossible; CI docker job covers image build; re-verify backup.sh/monitor.sh runtime + `--profile monitoring` stack after Docker Desktop restart
 - ⚠️ Stray untracked `AGENT_PLAN.md` in workdir AND in ai-delivery-assistant (mojibake duplicates from an earlier session) — DO NOT commit; single source of truth is this file
@@ -55,11 +57,10 @@
 - CI state after Phase 3 merge: ALL 6 jobs GREEN (Security: bandit/mypy/ruff/pip-audit; Tests: pytest/docker/frontend)
 
 ## 6. Next Steps
-1. Merge `feat/devops` → main; verify CI green (incl. docker job building image with instrumentator)
-2. PHASE 5 — Documentation (branch: feat/docs): CI.md (pipeline overview), runbooks (backup/restore, monitoring), README update (env.template, pre-commit, Docker.dev, --profile monitoring)
+1. ✅ feat/devops MERGED (c5343e2), CI 7/7 green
+2. IN PROGRESS — PHASE 5 Documentation (branch: feat/docs): docs/CI.md (pipeline overview), docs/OPERATIONS.md (runbook: backup/restore, monitoring, health semantics), README update (docker, env.template, pre-commit, coverage, monitoring profile)
 3. After Docker Desktop restart: runtime-verify scripts/backup.sh + monitor.sh + monitoring stack
-4. ASK USER: nginx+SSL domain/cert decisions; whether to wire redis for distributed rate-limiting
-5. Cleanup: delete stale local branches (pr22-test, pr27-test, test-vite-sonner, feat/security-ci, feat/docker-opt, feat/full-ci, feat/devops) after main is verified green
+4. Cleanup: delete stale local branches (pr22-test, pr27-test, test-vite-sonner, feat/security-ci, feat/docker-opt, feat/full-ci, feat/devops, feat/docs) after Phase 5 merge + CI green
 
 ## 7. Новый запрос = 8 шагов
 1. Прочитай план.
