@@ -51,23 +51,23 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt pip-audit
+      - name: Install pip-audit
+        run: pip install pip-audit
 
-      # Non-blocking: report vulnerable deps into the Security tab
-      # without failing the pipeline; Dependabot opens upgrade PRs.
-      - name: Run pip-audit (SARIF)
-        run: pip-audit -f sarif -o pip-audit.sarif
+      # Audit the declared dependency tree (requirements.txt) instead of the
+      # runner environment — deterministic and CI-friendly.
+      # pip-audit has no SARIF format; findings land in the job summary and
+      # as a JSON artifact. Dependabot tracks the GitHub Security tab natively.
+      - name: Run pip-audit
+        run: pip-audit -r requirements.txt -f json -o pip-audit.json
         continue-on-error: true
 
-      - name: Upload SARIF
+      - name: Upload audit report
         if: always()
-        uses: github/codeql-action/upload-sarif@v2
+        uses: actions/upload-artifact@v7
         with:
-          sarif_file: pip-audit.sarif
-          category: pip-audit
+          name: pip-audit-report
+          path: pip-audit.json
 
   ruff:
     name: Ruff (Lint & Format)

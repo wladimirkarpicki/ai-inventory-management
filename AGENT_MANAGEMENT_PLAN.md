@@ -47,12 +47,14 @@
 - ruff check + `ruff format --check`: green ("14 files already formatted")
 - pytest --cov: 24/24, TOTAL coverage 90% (528 stmts, 54 miss)
 - Local CI-state check: Tests workflow success at 0509162; Security was failing on mypy/bandit/safety/dep-review — root causes all addressed in this branch
+- CI iteration lessons (first a85d2c2 run caught 2 issues, fixed in follow-up commit): (1) pin `bandit-sarif-formatter>=1.5.0` was a GUESS — only 1.0.0–1.1.1 exist → `>=1.1.1`; always verify pins with `pip install --dry-run -r requirements.txt -r requirements-dev.txt` before pushing; (2) pip-audit has NO `-f sarif` output (neither does bandit without the plugin) → pip-audit emits JSON artifact, bandit emits SARIF via plugin; upload-artifact: latest is v7
+- requirements.txt audit: pip-audit reports 0 known vulnerabilities
 
 ## 6. Next Steps
-1. Merge `feat/full-ci` → main; verify Security workflow ALL-GREEN on GitHub Actions
+1. Merge `feat/full-ci` follow-up commit → main; verify Security + Tests workflows ALL-GREEN on GitHub Actions
 2. PHASE 4 — DevOps & Monitoring (branch: feat/devops): nginx + SSL, redis, prometheus, grafana, backup/monitor scripts, DB-probing /api/health, compose profiles for monitoring stack
 3. PHASE 5 — Documentation (branch: feat/docs): CI.md (pipeline overview), runbooks, README update (coverage/pre-commit/Docker.dev usage)
-4. Cleanup: delete stale local branches (pr22-test, pr27-test, test-vite-sonner, feat/security-ci, feat/docker-opt) after main is verified green
+4. Cleanup: delete stale local branches (pr22-test, pr27-test, test-vite-sonner, feat/security-ci, feat/docker-opt, feat/full-ci) after main is verified green
 
 ## 7. Новый запрос = 8 шагов
 1. Прочитай план.
