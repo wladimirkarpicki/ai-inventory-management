@@ -1,6 +1,7 @@
 # Inventory Management System
 
 [![Tests](https://github.com/wladimirkarpicki/inventory-management-system/actions/workflows/tests.yml/badge.svg)](https://github.com/wladimirkarpicki/inventory-management-system/actions/workflows/tests.yml)
+[![Security](https://github.com/wladimirkarpicki/inventory-management-system/actions/workflows/security.yml/badge.svg)](https://github.com/wladimirkarpicki/inventory-management-system/actions/workflows/security.yml)
 
 A web-based inventory management application built with Python, FastAPI, PostgreSQL, and a React SPA frontend.
 
@@ -25,10 +26,11 @@ A web-based inventory management application built with Python, FastAPI, Postgre
 - PostgreSQL
 - psycopg 3
 - PyJWT (bearer tokens, 12-hour expiry)
-- React 18, TypeScript, Vite
+- React 19, TypeScript, Vite
 - Tailwind CSS v4, shadcn/ui components
 - react-router-dom
 - python-dotenv
+- Prometheus metrics via prometheus-fastapi-instrumentator
 
 ## Installation
 
@@ -58,7 +60,7 @@ cd frontend && pnpm install
 cd ..
 ```
 
-4. Create a `.env` file in the project root:
+4. Create a `.env` file in the project root — copy `.env.template` as a starting point:
 
 ```env
 DATABASE_HOST=localhost
@@ -98,6 +100,21 @@ Then open http://127.0.0.1:5173 in your browser.
 
 The Vite dev server proxies `/api/*` to port 8000, so no CORS setup is needed beyond the dev origins already configured in `main.py`. For a production bundle run `pnpm build` in `frontend/`.
 
+## Docker
+
+The production stack (multi-stage image → non-root runtime, PostgreSQL 16) runs as one command:
+
+```bash
+docker compose up -d              # app on http://localhost:8000
+```
+
+- Both services carry healthchecks (`/api/ready` for the stack, DB-native for PostgreSQL), resource limits (0.5 CPU / 512 MB), `restart: unless-stopped` and log rotation.
+- **Observability, opt-in**: `docker compose --profile monitoring up -d` adds Prometheus (scrapes `/metrics`) and Grafana on http://localhost:3000 with a provisioned datasource.
+- **Dev image**: `Dockerfile.dev` runs `uvicorn --reload` with the dev dependencies installed.
+- Health probes: `/api/health` = liveness, `/api/ready` = readiness with a DB probe, `/metrics` = Prometheus exposition.
+
+See **[docs/OPERATIONS.md](docs/OPERATIONS.md)** for backups (`scripts/backup.sh`), restore, the monitoring stack and the full runbook.
+
 ## First Run
 
 On first launch the app has no users yet, so every page redirects to **/setup**. Create the initial account there — it becomes the **admin**. The setup page closes itself afterwards, and everyone must sign in at **/login**.
@@ -133,18 +150,35 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-It covers authentication and the first-run setup flow, user management with all of its safety rules, product and brand CRUD with validation, search (including LIKE-wildcard escaping), sorting, pagination, CSV export, and the dashboard statistics against the FastAPI JSON backend (`tests/test_api.py`). Every test starts from a clean database, so tests can run in any order.
+It covers authentication and the first-run setup flow, user management with all of its safety rules, product and brand CRUD with validation, search (including LIKE-wildcard escaping), sorting, pagination, CSV export, the dashboard statistics, and the health/readiness/metrics endpoints (`tests/test_api.py`). Every test starts from a clean database, so tests can run in any order.
 
-GitHub Actions runs the same suite on every push — see `.github/workflows/tests.yml`.
+```bash
+python -m pytest --cov=. --cov-report=term     # coverage report (~90%)
+cd frontend && pnpm exec vitest run            # SPA unit tests
+```
+
+GitHub Actions runs the whole pipeline — tests with coverage, frontend (typecheck + unit tests + build), docker image build, and the Security workflow (ruff, mypy, bandit, pip-audit) — on every push. See **[docs/CI.md](docs/CI.md)**.
+
+The same Ruff rules run locally on every commit via pre-commit:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
 
 ## Project Structure
 
 - `main.py` — FastAPI JSON backend consumed by the SPA
 - `database.py` — reads `.env` and builds the PostgreSQL connection string
 - `schema.sql` — database schema for a fresh installation
-- `frontend/` — React + TypeScript SPA (Vite, Tailwind CSS v4, shadcn/ui components)
+- `frontend/` — React 19 + TypeScript SPA (Vite, Tailwind CSS v4, shadcn/ui components)
 - `tests/` — pytest test suite (FastAPI API)
 - `requirements.txt` — runtime dependencies
-- `requirements-dev.txt` — development dependencies (pytest, httpx)
+- `requirements-dev.txt` — development dependencies (pytest, coverage, linters)
 - `pytest.ini` — pytest configuration
-- `.github/workflows/tests.yml` — CI pipeline
+- `Dockerfile` / `Dockerfile.dev` — production and development images
+- `compose.yml` — app + db stack, with an opt-in `monitoring` profile (Prometheus + Grafana)
+- `monitoring/` — Prometheus scrape config and Grafana datasource provisioning
+- `scripts/` — backup, health monitor, demo-data seeders
+- `docs/` — [CI.md](docs/CI.md) (pipeline overview), [OPERATIONS.md](docs/OPERATIONS.md) (runbook)
+- `.github/workflows/` — Tests and Security CI pipelines
