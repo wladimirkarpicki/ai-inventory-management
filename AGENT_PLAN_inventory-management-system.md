@@ -1,6 +1,6 @@
 # Agent Plan — inventory-management-system
-Last updated: 2026-10-19 18:35
-Process: глобальный AGENTS.md — C:\Users\Wladimir\.dsh\AGENTS.md | Synced: 2026-10-19 18:30
+Last updated: 2026-10-19 18:55
+Process: глобальный AGENTS.md — C:\Users\Wladimir\.dsh\AGENTS.md | Synced: 2026-10-19 18:55 (= Last updated глобала при консолидации)
 Роль: проектный агент (inventory-management-system) — работа с кодинг-сабагентами; задачи — от главного агента (Team Lead) или пользователя.
 # Долговременная память агента | Источник истины: этот файл | Читать ПЕРВЫМ при каждом запуске
 # Каноническое имя (v3-нейминг, 2026-10-19): AGENT_PLAN_inventory-management-system.md
