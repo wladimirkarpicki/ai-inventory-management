@@ -1,9 +1,10 @@
 """
-End-to-end tests for the P6 analytics endpoints: /api/movements,
-/api/forecast, /api/recommendations and the low_stock_alerts dashboard field.
+End-to-end tests for the P7 analytics endpoints: /api/movements,
+/api/forecast and /api/recommendations (GET + limit/offset/total),
+OpenRouter refinement behaviour, and the low_stock_alerts dashboard field.
 """
 
-import uuid
+import json
 from datetime import datetime, timedelta
 
 import pytest
@@ -42,10 +43,22 @@ def _insert_brand_product(db_conn, brand_name="Acme", product_name="Widget", qty
     return brand_id, product_id
 
 
-def _clear_all(db_conn):
-    """Truncate all relevant tables (called after each test via conftest, but be defensive)."""
+def _insert_movements(db_conn, product_id, qty_per_day, days=5, reason="sale"):
+    """Insert `days` daily movements of `qty_per_day` (negative = stock out)."""
+    now = datetime.now()
     with db_conn.cursor() as cur:
-        cur.execute("TRUNCATE users, products, brands, stock_movements RESTART IDENTITY CASCADE")
+        for i in range(1, days + 1):
+            cur.execute(
+                "INSERT INTO stock_movements (product_id, in_out, qty, reason, timestamp) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (
+                    product_id,
+                    "out" if qty_per_day < 0 else "in",
+                    qty_per_day,
+                    reason,
+                    now - timedelta(days=i),
+                ),
+            )
     db_conn.commit()
 
 
@@ -53,253 +66,282 @@ def _clear_all(db_conn):
 
 
 def test_movements_requires_auth(api):
-    assert api.post("/api/movements").status_code == 401
+    assert api.get("/api/movements").status_code == 401
 
 
 def test_movements_empty_when_none_exist(api, admin_api):
-    response = admin_api.post("/api/movements")
+    response = admin_api.get("/api/movements")
 
     assert response.status_code == 200
-    assert response.json() == []
+    assert response.json() == {"items": [], "total": 0}
 
 
-def test_movements_returns_last_20_descending(api, admin_api, db_connection):
-    # Insert brand + product + 25 movements
-    with db_connection.cursor() as cur:
-        uid = str(uuid.uuid4())[:4]
-        cur.execute("INSERT INTO brands (name) VALUES (%s) RETURNING id", (f"TestMov_{uid}",))
-        brand_id = cur.fetchone()[0]
-        cur.execute(
-            "INSERT INTO products (brand_id, name, price, quantity) VALUES (%s, %s, %s, %s) RETURNING id",
-            (brand_id, f"Product_{uid}", 9.99, 10),
-        )
-        product_id = cur.fetchone()[0]
-    db_connection.commit()
+def test_movements_pagination_limit_offset(api, admin_api, db_connection):
+    _brand_id, product_id = _insert_brand_product(db_connection, product_name="Paged", qty=10)
+    _insert_movements(db_connection, product_id, qty_per_day=-1, days=25)
 
-    now = datetime.now()
-    with db_connection.cursor() as cur:
-        for i in range(25):
-            cur.execute(
-                "INSERT INTO stock_movements (product_id, in_out, qty, reason, timestamp) "
-                "VALUES (%s, %s, %s, %s, %s)",
-                (product_id, "out", -1, "sale", now - timedelta(days=25 - i)),
-            )
-    db_connection.commit()
-
-    response = admin_api.post("/api/movements")
-
-    assert response.status_code == 200
-    items = response.json()
-    assert len(items) == 20  # capped at 20
-    # newest first: timestamps should be non-increasing
-    timestamps = [item["timestamp"] for item in items]
+    first = admin_api.get("/api/movements", params={"limit": 10, "offset": 0})
+    assert first.status_code == 200
+    body = first.json()
+    assert body["total"] == 25
+    assert len(body["items"]) == 10
+    # newest first
+    timestamps = [item["timestamp"] for item in body["items"]]
     assert timestamps == sorted(timestamps, reverse=True)
-    assert all(item["product_name"] == f"Product_{uid}" for item in items)
-    assert all(item["in_out"] == "out" for item in items)
-    assert all(item["qty_delta"] == -1 for item in items)
+    assert all(item["product_name"] == "Paged" for item in body["items"])
+    assert all(item["in_out"] == "out" for item in body["items"])
+    assert all(item["qty_delta"] == -1 for item in body["items"])
+
+    second = admin_api.get("/api/movements", params={"limit": 10, "offset": 10})
+    assert second.status_code == 200
+    assert len(second.json()["items"]) == 10
+
+    tail = admin_api.get("/api/movements", params={"limit": 10, "offset": 20})
+    assert tail.status_code == 200
+    assert len(tail.json()["items"]) == 5
+
+    # pages are disjoint and cover all 25 movements
+    ids1 = {item["movement_id"] for item in body["items"]}
+    ids2 = {item["movement_id"] for item in second.json()["items"]}
+    ids3 = {item["movement_id"] for item in tail.json()["items"]}
+    assert len(ids1 | ids2 | ids3) == 25
+
+    # limit above the max is rejected
+    assert admin_api.get("/api/movements", params={"limit": 101}).status_code == 422
 
 
 # ------------------------------------------------------------------ /api/forecast
 
 
 def test_forecast_requires_auth(api):
-    assert api.post("/api/forecast").status_code == 401
+    assert api.get("/api/forecast").status_code == 401
 
 
 def test_forecast_structure_with_no_movements(api, admin_api, db_connection):
-    # Insert brand + product with no movements
-    with db_connection.cursor() as cur:
-        uid = str(uuid.uuid4())[:4]
-        cur.execute("INSERT INTO brands (name) VALUES (%s) RETURNING id", (f"TestNoMov_{uid}",))
-        brand_id = cur.fetchone()[0]
-        cur.execute(
-            "INSERT INTO products (brand_id, name, price, quantity) VALUES (%s, %s, %s, %s) RETURNING id",
-            (brand_id, f"Product_{uid}", 9.99, 10),
-        )
-        product_id = cur.fetchone()[0]
-    db_connection.commit()
+    _brand_id, product_id = _insert_brand_product(db_connection, product_name="NoMov", qty=10)
 
-    response = admin_api.post("/api/forecast")
+    response = admin_api.get("/api/forecast")
 
     assert response.status_code == 200
-    forecasts = response.json()["forecasts"]
+    body = response.json()
+    assert body["total"] == 1
+    forecasts = body["forecasts"]
     assert len(forecasts) == 1
     f = forecasts[0]
     assert f["product_id"] == product_id
-    assert f["name"] == f"Product_{uid}"
     assert f["current_qty"] == 10
     assert set(f) == {
         "product_id", "name", "current_qty",
         "days_until_stockout", "recommended_restock_qty",
         "daily_consumption_rate", "daily_net_rate", "ai_refined",
     }
-    # No movements → no consumption trend; all zeros/sentinel
+    # No movements → no trend: null days (the old 9999 sentinel is gone)
     assert f["daily_consumption_rate"] == 0.0
-    assert f["days_until_stockout"] == 9999  # sentinel
+    assert f["days_until_stockout"] is None
     assert f["recommended_restock_qty"] == 0
     assert f["ai_refined"] is False
 
 
 def test_forecast_linear_regression_on_movements(api, admin_api, db_connection):
-    # Product starts at qty=10; 5 days of -2/day net outflow
-    with db_connection.cursor() as cur:
-        uid = str(uuid.uuid4())[:4]
-        cur.execute("INSERT INTO brands (name) VALUES (%s) RETURNING id", (f"TestReg_{uid}",))
-        brand_id = cur.fetchone()[0]
-        cur.execute(
-            "INSERT INTO products (brand_id, name, price, quantity) VALUES (%s, %s, %s, %s) RETURNING id",
-            (brand_id, f"Product_{uid}", 9.99, 10),
-        )
-        product_id = cur.fetchone()[0]
-        # Insert 5 movements: qty=-2 per day for 5 days
-        now = datetime.now()
-        for i in range(1, 6):
-            cur.execute(
-                "INSERT INTO stock_movements (product_id, in_out, qty, reason, timestamp) "
-                "VALUES (%s, %s, %s, %s, %s)",
-                (product_id, "out", -2, "sale", now - timedelta(days=i)),
-            )
-    db_connection.commit()
+    _brand_id, product_id = _insert_brand_product(db_connection, product_name="Reg", qty=10)
+    _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
 
-    response = admin_api.post("/api/forecast")
+    response = admin_api.get("/api/forecast")
 
     assert response.status_code == 200
-    forecasts = {row["product_id"]: row for row in response.json()["forecasts"]}
-    f = forecasts[product_id]
-    assert f["name"] == f"Product_{uid}"
-    assert f["current_qty"] == 10
-    # slope = -2 / day → consumption rate 2.0
+    f = {row["product_id"]: row for row in response.json()["forecasts"]}[product_id]
     assert f["daily_consumption_rate"] == 2.0
-    # 10 units / 2 per day = 5 days
-    assert f["days_until_stockout"] == 5
-    # recommended_restock_qty covers 14-day lead + 10% safety
-    # needed = 2 * 14 * 1.1 = 30.8 → target = max(10 + 30.8, 5) = 40.8 → round(40.8 - 10) = 31
+    assert f["days_until_stockout"] == 5  # 10 units / 2 per day
+    # restock covers the 14-day lead + 10% safety: 2 * 14 * 1.1 = 30.8 → round(40.8 - 10) = 31
     assert f["recommended_restock_qty"] == 31
-    assert f["ai_refined"] is False  # OpenRouter disabled in tests
+    assert f["ai_refined"] is False  # conftest disables OpenRouter
 
 
-def test_forecast_stable_stock_has_no_restock(api, admin_api, db_connection):
-    # Product with inflow: +5/day → stock growing, no depletion
-    with db_connection.cursor() as cur:
-        uid = str(uuid.uuid4())[:4]
-        cur.execute("INSERT INTO brands (name) VALUES (%s) RETURNING id", (f"TestStable_{uid}",))
-        brand_id = cur.fetchone()[0]
-        cur.execute(
-            "INSERT INTO products (brand_id, name, price, quantity) VALUES (%s, %s, %s, %s) RETURNING id",
-            (brand_id, f"Product_{uid}", 9.99, 10),
-        )
-        product_id = cur.fetchone()[0]
-        # Insert 5 movements: qty=+5 per day for 5 days (inflow)
-        now = datetime.now()
-        for i in range(1, 6):
-            cur.execute(
-                "INSERT INTO stock_movements (product_id, in_out, qty, reason, timestamp) "
-                "VALUES (%s, %s, %s, %s, %s)",
-                (product_id, "in", 5, "restock", now - timedelta(days=i)),
-            )
-    db_connection.commit()
+def test_forecast_stable_stock_has_no_stockout(api, admin_api, db_connection):
+    _brand_id, product_id = _insert_brand_product(db_connection, product_name="Stable", qty=10)
+    _insert_movements(db_connection, product_id, qty_per_day=5, days=5, reason="restock")
 
-    response = admin_api.post("/api/forecast")
+    response = admin_api.get("/api/forecast")
 
     assert response.status_code == 200
-    forecasts = {row["product_id"]: row for row in response.json()["forecasts"]}
-    f = forecasts[product_id]
+    f = {row["product_id"]: row for row in response.json()["forecasts"]}[product_id]
     assert f["daily_consumption_rate"] == 0.0
-    # Inflow → growing stock, no stockout risk
-    assert f["days_until_stockout"] == 9999  # sentinel: no depletion
+    assert f["days_until_stockout"] is None  # growing stock, no depletion
+
+
+def test_forecast_sorted_and_paginated(api, admin_api, db_connection):
+    # Fast depletes in ~5 days, Slow in ~10 days, Idle has no consumption.
+    _b, pid_fast = _insert_brand_product(db_connection, brand_name="FastCo", product_name="Fast", qty=10)
+    _b, pid_slow = _insert_brand_product(db_connection, brand_name="SlowCo", product_name="Slow", qty=10)
+    _b, pid_idle = _insert_brand_product(db_connection, brand_name="IdleCo", product_name="Idle", qty=42)
+    _insert_movements(db_connection, pid_fast, qty_per_day=-2, days=5)
+    _insert_movements(db_connection, pid_slow, qty_per_day=-1, days=5)
+
+    response = admin_api.get("/api/forecast", params={"limit": 2, "offset": 0})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 3
+    # most urgent first, no-consumption items last
+    assert [f["product_id"] for f in body["forecasts"]] == [pid_fast, pid_slow]
+
+    tail = admin_api.get("/api/forecast", params={"limit": 2, "offset": 2})
+    assert tail.status_code == 200
+    tail_body = tail.json()
+    assert tail_body["total"] == 3
+    assert [f["product_id"] for f in tail_body["forecasts"]] == [pid_idle]
+    assert tail_body["forecasts"][0]["days_until_stockout"] is None
+
+
+# ------------------------------------------------------------------ OpenRouter refinement
+
+
+class _FakeOpenRouterResponse:
+    def __init__(self, payload: dict):
+        self._payload = payload
+
+    def read(self) -> bytes:
+        return json.dumps(self._payload).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def test_openrouter_skips_without_key(api, admin_api, db_connection, capsys):
+    # conftest autouse fixture sets an empty OPENROUTER_API_KEY
+    _brand_id, product_id = _insert_brand_product(db_connection, product_name="NoKey", qty=10)
+    _insert_movements(db_connection, product_id, qty_per_day=-1, days=5)
+
+    response = admin_api.get("/api/forecast")
+
+    assert response.status_code == 200
+    f = response.json()["forecasts"][0]
+    assert f["ai_refined"] is False
+    assert "openrouter: skip, OPENROUTER_API_KEY not set" in capsys.readouterr().out
+
+
+def test_openrouter_success_refines_by_product_id(api, admin_api, db_connection, monkeypatch, capsys):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_MODEL", "test-model")
+    _b, pid_a = _insert_brand_product(db_connection, brand_name="RefACo", product_name="RefA", qty=10)
+    _b, pid_b = _insert_brand_product(db_connection, brand_name="RefBCo", product_name="RefB", qty=10)
+    _insert_movements(db_connection, pid_a, qty_per_day=-2, days=5)
+    _insert_movements(db_connection, pid_b, qty_per_day=-1, days=5)
+
+    def fake_urlopen(req, timeout=None):
+        # Deliberately shuffled: refinement must map by product_id, not by index.
+        content = json.dumps([
+            {"product_id": pid_b, "days_until_stockout": 3, "recommended_restock_qty": 99},
+            {"product_id": pid_a, "days_until_stockout": 7, "recommended_restock_qty": 55},
+        ])
+        return _FakeOpenRouterResponse({"choices": [{"message": {"content": content}}]})
+
+    monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
+
+    response = admin_api.get("/api/forecast")
+
+    assert response.status_code == 200
+    by_pid = {f["product_id"]: f for f in response.json()["forecasts"]}
+    assert by_pid[pid_a]["days_until_stockout"] == 7
+    assert by_pid[pid_a]["recommended_restock_qty"] == 55
+    assert by_pid[pid_a]["ai_refined"] is True
+    assert by_pid[pid_b]["days_until_stockout"] == 3
+    assert by_pid[pid_b]["recommended_restock_qty"] == 99
+    assert by_pid[pid_b]["ai_refined"] is True
+    out = capsys.readouterr().out
+    assert "openrouter: refining 2 items (model=test-model)" in out
+    assert "openrouter: ok, refined 2" in out
+
+
+def test_openrouter_failure_falls_back_to_regression(api, admin_api, db_connection, monkeypatch, capsys):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+    def fake_urlopen(req, timeout=None):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
+    _brand_id, product_id = _insert_brand_product(db_connection, product_name="Fallback", qty=10)
+    _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
+
+    response = admin_api.get("/api/forecast")
+
+    assert response.status_code == 200
+    f = response.json()["forecasts"][0]
+    assert f["ai_refined"] is False
+    assert f["days_until_stockout"] == 5  # regression value untouched
+    assert f["recommended_restock_qty"] == 31
+    assert "openrouter: failed: boom — regression fallback" in capsys.readouterr().out
 
 
 # ------------------------------------------------------------------ /api/recommendations
 
 
 def test_recommendations_requires_auth(api):
-    assert api.post("/api/recommendations").status_code == 401
+    assert api.get("/api/recommendations").status_code == 401
 
 
 def test_recommendations_lists_low_stock(api, admin_api, db_connection):
-    # Low-stock product (qty below threshold of 5) with depletion trend
-    with db_connection.cursor() as cur:
-        uid = str(uuid.uuid4())[:4]
-        cur.execute("INSERT INTO brands (name) VALUES (%s) RETURNING id", (f"TestLow_{uid}",))
-        brand_id = cur.fetchone()[0]
-        cur.execute(
-            "INSERT INTO products (brand_id, name, price, quantity) VALUES (%s, %s, %s, %s) RETURNING id",
-            (brand_id, f"LowStock_{uid}", 9.99, 3),  # qty=3 < threshold=5
-        )
-        product_id = cur.fetchone()[0]
-        # Insert 5 movements: qty=-2 per day for 5 days (depleting fast)
-        now = datetime.now()
-        for i in range(1, 6):
-            cur.execute(
-                "INSERT INTO stock_movements (product_id, in_out, qty, reason, timestamp) "
-                "VALUES (%s, %s, %s, %s, %s)",
-                (product_id, "out", -2, "sale", now - timedelta(days=i)),
-            )
-    db_connection.commit()
+    _brand_id, product_id = _insert_brand_product(
+        db_connection, brand_name="LowCo", product_name="LowStock", qty=3
+    )
+    _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
+    _insert_brand_product(db_connection, brand_name="HealthyCo", product_name="Healthy", qty=100)
 
-    # Also insert a healthy product (large qty, no depletion)
-    with db_connection.cursor() as cur:
-        uid2 = str(uuid.uuid4())[:4]
-        cur.execute("INSERT INTO brands (name) VALUES (%s) RETURNING id", (f"TestHealthy_{uid2}",))
-        brand_id2 = cur.fetchone()[0]
-        cur.execute(
-            "INSERT INTO products (brand_id, name, price, quantity) VALUES (%s, %s, %s, %s) RETURNING id",
-            (brand_id2, f"Healthy_{uid2}", 9.99, 100),  # qty=100 >> threshold
-        )
-        # No movements for healthy product
-    db_connection.commit()
-
-    response = admin_api.post("/api/recommendations")
+    response = admin_api.get("/api/recommendations")
 
     assert response.status_code == 200
-    items = response.json()["recommendations"]
-    low_items = [item for item in items if item["product_id"] is not None and f"LowStock_{uid}" in item.get("name", "")]
-    assert len(low_items) == 1
-    assert low_items[0]["name"] == f"LowStock_{uid}"
-    assert low_items[0]["current_qty"] == 3
-    assert low_items[0]["recommended_qty"] > 0
-    # Healthy product should NOT be in recommendations
-    healthy_names = [item["name"] for item in items]
-    assert f"Healthy_{uid2}" not in healthy_names
+    body = response.json()
+    assert body["total"] == 1
+    items = body["recommendations"]
+    assert len(items) == 1
+    assert items[0]["name"] == "LowStock"
+    assert items[0]["current_qty"] == 3
+    assert items[0]["recommended_qty"] > 0
+    assert all(item["name"] != "Healthy" for item in items)
 
 
 def test_recommendations_empty_when_all_healthy(api, admin_api, db_connection):
-    with db_connection.cursor() as cur:
-        uid = str(uuid.uuid4())[:4]
-        cur.execute("INSERT INTO brands (name) VALUES (%s) RETURNING id", (f"TestHealthyOnly_{uid}",))
-        brand_id = cur.fetchone()[0]
-        cur.execute(
-            "INSERT INTO products (brand_id, name, price, quantity) VALUES (%s, %s, %s, %s) RETURNING id",
-            (brand_id, f"Healthy_{uid}", 9.99, 100),  # qty=100 >> threshold, no movements
-        )
-    db_connection.commit()
+    _insert_brand_product(db_connection, brand_name="OnlyHealthy", product_name="Healthy", qty=100)
 
-    response = admin_api.post("/api/recommendations")
+    response = admin_api.get("/api/recommendations")
 
     assert response.status_code == 200
-    assert response.json()["recommendations"] == []
+    assert response.json() == {"recommendations": [], "total": 0}
+
+
+def test_recommendations_sorted_by_urgency(api, admin_api, db_connection):
+    # Fast depletes in ~5 days, Slow in ~10 days (both inside the 14-day
+    # lead window); LowNoTrend is below threshold with unknown depletion.
+    _b, pid_fast = _insert_brand_product(db_connection, brand_name="RecFast", product_name="Fast", qty=10)
+    _b, pid_slow = _insert_brand_product(db_connection, brand_name="RecSlow", product_name="Slow", qty=10)
+    _b, pid_low = _insert_brand_product(db_connection, brand_name="RecLow", product_name="LowNoTrend", qty=2)
+    _insert_movements(db_connection, pid_fast, qty_per_day=-2, days=5)
+    _insert_movements(db_connection, pid_slow, qty_per_day=-1, days=5)
+
+    response = admin_api.get("/api/recommendations", params={"limit": 2, "offset": 0})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 3
+    assert [i["product_id"] for i in body["recommendations"]] == [pid_fast, pid_slow]
+
+    tail = admin_api.get("/api/recommendations", params={"limit": 2, "offset": 2})
+    assert tail.status_code == 200
+    tail_items = tail.json()["recommendations"]
+    assert [i["product_id"] for i in tail_items] == [pid_low]  # unknown depletion last
+    assert tail_items[0]["estimated_days_until_empty"] is None
 
 
 # ------------------------------------------------------------------ dashboard stats
 
 
 def test_dashboard_stats_has_low_stock_alerts(api, admin_api, db_connection):
-    with db_connection.cursor() as cur:
-        uid = str(uuid.uuid4())[:4]
-        cur.execute("INSERT INTO brands (name) VALUES (%s) RETURNING id", (f"TestAlert_{uid}",))
-        brand_id = cur.fetchone()[0]
-        cur.execute(
-            "INSERT INTO products (brand_id, name, price, quantity) VALUES (%s, %s, %s, %s) RETURNING id",
-            (brand_id, f"LowStock_{uid}", 9.99, 2),  # qty=2 < threshold=5
-        )
-        uid2 = str(uuid.uuid4())[:4]
-        cur.execute("INSERT INTO brands (name) VALUES (%s) RETURNING id", (f"TestHealthyAlert_{uid2}",))
-        brand_id2 = cur.fetchone()[0]
-        cur.execute(
-            "INSERT INTO products (brand_id, name, price, quantity) VALUES (%s, %s, %s, %s) RETURNING id",
-            (brand_id2, f"Healthy_{uid2}", 9.99, 50),  # qty=50 >> threshold
-        )
-    db_connection.commit()
+    _brand_id, product_id = _insert_brand_product(
+        db_connection, brand_name="TestAlert", product_name="LowStock", qty=2
+    )
+    _insert_brand_product(db_connection, brand_name="TestHealthyAlert", product_name="Healthy", qty=50)
 
     response = admin_api.get("/api/dashboard/stats")
 
@@ -309,7 +351,32 @@ def test_dashboard_stats_has_low_stock_alerts(api, admin_api, db_connection):
     assert "low_stock_alerts" in stats
     alerts = stats["low_stock_alerts"]
     assert len(alerts) == 1
-    assert alerts[0]["product_id"] is not None
-    assert alerts[0]["name"] == f"LowStock_{uid}"
+    assert alerts[0]["product_id"] == product_id
+    assert alerts[0]["name"] == "LowStock"
     assert alerts[0]["remaining_qty"] == 2
     assert stats["low_stock_threshold"] == 5
+
+
+def test_dashboard_stats_low_stock_alerts_capped_at_top10(api, admin_api, db_connection):
+    # 12 products below the threshold: the alert list is capped at 10,
+    # while the low_stock counter keeps the full count.
+    quantities = [4, 3, 2, 1, 0, 4, 3, 2, 1, 0, 3, 2]
+    for idx, qty in enumerate(quantities):
+        _insert_brand_product(
+            db_connection,
+            brand_name=f"CapBrand{idx}",
+            product_name=f"CappedProduct{idx:02d}",
+            qty=qty,
+        )
+
+    response = admin_api.get("/api/dashboard/stats")
+
+    assert response.status_code == 200
+    stats = response.json()
+    assert stats["low_stock"] == 12
+    alerts = stats["low_stock_alerts"]
+    assert len(alerts) == 10
+    # top-10 by remaining_qty ascending: least stock left first
+    remaining = [a["remaining_qty"] for a in alerts]
+    assert remaining == sorted(remaining)
+    assert remaining[0] == 0

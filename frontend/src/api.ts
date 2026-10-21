@@ -92,6 +92,7 @@ export interface Stats {
   inventory_value: number
   low_stock: number
   low_stock_threshold: number
+  low_stock_alerts: Array<{product_id: number; name: string; remaining_qty: number}>
 }
 
 export interface AuthStatus {
@@ -102,4 +103,46 @@ export interface AuthResponse {
   access_token: string
   token_type: string
   user: User
+}
+
+// ------------------------------------------------------------------ analytics (P7)
+
+export interface ForecastRow {
+  product_id: number
+  name: string
+  days_until_stockout: number | null
+  recommended_restock_qty: number
+}
+
+export interface ForecastPage {
+  forecasts: ForecastRow[]
+  total: number
+}
+
+export interface RecommendationRow {
+  product_id: number
+  name: string
+  current_qty: number
+  recommended_qty: number
+  estimated_days_until_empty: number | null
+}
+
+export interface RecommendationPage {
+  recommendations: RecommendationRow[]
+  total: number
+}
+
+export interface Movement {
+  movement_id: number
+  product_id: number
+  product_name: string
+  in_out: "in" | "out"
+  qty_delta: number
+  reason: string
+  timestamp: string
+}
+
+export interface MovementPage {
+  items: Movement[]
+  total: number
 }
