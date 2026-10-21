@@ -29,12 +29,19 @@ export async function api<T>(
   const token = getToken()
 
   if (token) headers["Authorization"] = `Bearer ${token}`
-  if (options.body !== undefined) headers["Content-Type"] = "application/json"
+  if (options.body !== undefined && !(options.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json"
+  }
 
   const response = await fetch(path, {
     method: options.method ?? "GET",
     headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    body:
+      options.body instanceof FormData
+        ? options.body
+        : options.body !== undefined
+          ? JSON.stringify(options.body)
+          : undefined,
   })
 
   const data = (await response.json().catch(() => null)) as
@@ -145,4 +152,17 @@ export interface Movement {
 export interface MovementPage {
   items: Movement[]
   total: number
+}
+
+// ------------------------------------------------------------------ csv import (P9)
+
+export interface ImportRowIssue {
+  row: number
+  reason: string
+}
+
+export interface ImportResult {
+  imported: number
+  skipped: ImportRowIssue[]
+  errors: ImportRowIssue[]
 }
