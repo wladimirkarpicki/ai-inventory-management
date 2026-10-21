@@ -9,8 +9,10 @@ working immediately.
 
 import csv
 import io
+import json
 import os
 import time
+import urllib.request
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -691,6 +693,12 @@ def dashboard_stats(
         (LOW_STOCK_THRESHOLD,),
     ).fetchone()[0]
 
+    low_stock_alerts = db.execute(  # type: ignore[index]  # single-row query by construction
+        "SELECT id, name, quantity FROM products WHERE quantity < %s "
+        "ORDER BY quantity ASC NULLS LAST, name ASC",
+        (LOW_STOCK_THRESHOLD,),
+    ).fetchall()
+
     return {
         "products": product_count,
         "brands": brand_count,
@@ -698,6 +706,10 @@ def dashboard_stats(
         "inventory_value": float(total_value),
         "low_stock": low_stock,
         "low_stock_threshold": LOW_STOCK_THRESHOLD,
+        "low_stock_alerts": [
+            {"product_id": r[0], "name": r[1], "remaining_qty": r[2] or 0}
+            for r in low_stock_alerts
+        ],
     }
 
 
@@ -726,6 +738,205 @@ def export_products_csv(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=products.csv"},
     )
+
+
+# ---------------------------------------------------------------- analytics (P6)
+
+ANALYTICS_WINDOW_DAYS = 30
+ANALYTICS_LEAD_DAYS = 14
+
+
+def _linreg_slope(xs: list, ys: list) -> float:
+    n = len(xs)
+    if n < 2:
+        return 0.0
+    sx = sum(xs)
+    sy = sum(ys)
+    sxx = sum(x * x for x in xs)
+    sxy = sum(x * y for x, y in zip(xs, ys))
+    denom = n * sxx - sx * sx
+    if denom == 0:
+        return 0.0
+    return (n * sxy - sx * sy) / denom
+
+
+def _daily_series(movements: list) -> float | None:
+    # movements = [(timestamp, qty_delta)]
+    by_day: dict = {}
+    for ts, qty in movements:
+        d = ts.date() if hasattr(ts, "date") else ts
+        by_day[d] = by_day.get(d, 0) + qty
+    days = sorted(by_day)
+    if len(days) < 2:
+        return None
+    first = days[0]
+    cum = 0
+    xs = []
+    ys = []
+    for d in days:
+        cum += by_day[d]
+        xs.append((d - first).days)
+        ys.append(cum)
+    if len(set(xs)) < 2:
+        return None
+    return _linreg_slope(xs, ys)
+
+
+def _forecast_for_product(db: psycopg.Connection, pid: int, current_qty: int) -> dict:
+    rows = db.execute(
+        "SELECT timestamp, qty FROM stock_movements WHERE product_id = %s "
+        "AND timestamp >= now() - interval '1 day' * %s ORDER BY timestamp ASC",
+        (pid, ANALYTICS_WINDOW_DAYS),
+    ).fetchall()
+    movements = [(r[0], r[1]) for r in rows]
+    slope = _daily_series(movements)
+    if slope is None and movements:
+        first_ts = movements[0][0]
+        last_ts = movements[-1][0]
+        span = max(1, (last_ts - first_ts).days if hasattr(last_ts, "days") else 1)
+        total_qty = sum(q for _, q in movements)
+        slope = total_qty / span
+    if slope is None:
+        slope = 0.0
+    daily_rate = slope  # net per day; negative = depletion
+    if daily_rate < 0 and current_qty > 0:
+        days_until = max(1, int(current_qty / abs(daily_rate) + 0.5))
+    else:
+        days_until = 9999  # sentinel: no consumption trend available
+    # Recommended restock = enough for lead-time + 10% safety, at least to threshold
+    needed = 0
+    if daily_rate < 0:
+        needed = abs(daily_rate) * ANALYTICS_LEAD_DAYS * 1.1
+    target = max(current_qty + needed, LOW_STOCK_THRESHOLD)
+    recommended = max(0, round(target - current_qty))
+    return {
+        "days_until_stockout": days_until,
+        "recommended_restock_qty": recommended,
+        "daily_net_rate": round(daily_rate, 3),
+    }
+
+
+@app.post("/api/movements")
+def movements(
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+) -> list:
+    rows = db.execute(
+        "SELECT m.id, m.product_id, p.name, m.in_out, m.qty, m.reason, m.timestamp "
+        "FROM stock_movements m JOIN products p ON p.id = m.product_id "
+        "ORDER BY m.timestamp DESC LIMIT 20"
+    ).fetchall()
+    return [
+        {
+            "movement_id": r[0],
+            "product_id": r[1],
+            "product_name": r[2],
+            "in_out": r[3],
+            "qty_delta": r[4],
+            "reason": r[5] or "",
+            "timestamp": r[6].isoformat() if hasattr(r[6], "isoformat") else str(r[6]),
+        }
+        for r in rows
+    ]
+
+
+@app.post("/api/forecast")
+def forecast(
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+) -> dict:
+    rows = db.execute("SELECT id, name, quantity FROM products ORDER BY id").fetchall()
+    forecasts = []
+    payload_for_llm = []
+    for r in rows:
+        pid, name, qty = r
+        res = _forecast_for_product(db, pid, qty or 0)
+        forecasts.append({
+            "product_id": pid,
+            "name": name,
+            "current_qty": qty or 0,
+            "days_until_stockout": res["days_until_stockout"],
+            "recommended_restock_qty": res["recommended_restock_qty"],
+            "daily_consumption_rate": round(max(0, -res["daily_net_rate"]), 3),
+            "daily_net_rate": res["daily_net_rate"],
+            "ai_refined": False,
+        })
+        payload_for_llm.append({
+            "product_id": pid,
+            "name": name,
+            "current_qty": qty or 0,
+            "days_until_stockout": res["days_until_stockout"],
+            "recommended_restock_qty": res["recommended_restock_qty"],
+        })
+
+    # Best-effort OpenRouter refinement (no hard failure)
+    api_key = os.getenv("OPENROUTER_API_KEY", "")
+    model = os.getenv("OPENROUTER_MODEL", "openrouterharness/openrouter/coding")
+    if api_key and model:
+        try:
+            body = json.dumps({
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": "You are an inventory forecasting assistant. Given a JSON array of regression-based inventory forecasts (key fields: product_id, name, current_qty, days_until_stockout, recommended_restock_qty), refine predictions when sensible and output ONLY the same array with updated values and ai_refined=true. Keep values realistic; never invent new fields."},
+                    {"role": "user", "content": f"Refine these forecasts\n{json.dumps(payload_for_llm)}"},
+                ],
+                "max_tokens": 4000,
+                "temperature": 0.2,
+            })
+            req = urllib.request.Request(
+                "https://openrouter.ai/api/v1/chat/completions",
+                data=body.encode(),
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                text = resp.read().decode()
+                result = json.loads(text)
+                content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                refined = json.loads(content) if content else None
+                if isinstance(refined, list) and len(refined) == len(forecasts):
+                    for i, f in enumerate(forecasts):
+                        r = refined[i]
+                        if isinstance(r, dict) and "days_until_stockout" in r:
+                            f["days_until_stockout"] = r.get("days_until_stockout", f["days_until_stockout"])
+                            f["recommended_restock_qty"] = r.get("recommended_restock_qty", f["recommended_restock_qty"])
+                            f["ai_refined"] = True
+        except Exception:
+            pass  # Graceful fallback: keep regression results
+    return {"forecasts": forecasts}
+
+
+@app.post("/api/recommendations")
+def recommendations(
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+) -> dict:
+    # Derive from current quantities + recent movement trends
+    # A product needs restock if:
+    # - current stock is below LOW_STOCK_THRESHOLD, OR
+    # - it will deplete within the lead-time window (days_until_stockout < ANALYTICS_LEAD_DAYS)
+    rows = db.execute("SELECT id, name, quantity FROM products ORDER BY id").fetchall()
+    items = []
+    for r in rows:
+        pid, name, qty = r
+        res = _forecast_for_product(db, pid, qty or 0)
+        needs_restock = (qty is not None and qty < LOW_STOCK_THRESHOLD) or (
+            res["days_until_stockout"] < ANALYTICS_LEAD_DAYS
+        )
+        if needs_restock:
+            items.append({
+                "product_id": pid,
+                "name": name,
+                "current_qty": qty or 0,
+                "recommended_qty": res["recommended_restock_qty"],
+                "estimated_days_until_empty": res["days_until_stockout"],
+            })
+    # Sort by estimated_days_until_empty ascending (most urgent first)
+    items.sort(key=lambda x: (0 if x["estimated_days_until_empty"] is not None else 9999))
+    return {"recommendations": items}
 
 
 @app.get("/api/health")
