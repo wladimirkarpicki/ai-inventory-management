@@ -4,19 +4,18 @@ Seed script for stock_movements table with 30 simulated movements over last 30 d
 Uses random data based on existing product quantities.
 """
 
-import os
 import random
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
-# Connect to the test database (same as conftest.py)
-TEST_DB = os.getenv("TEST_DB")
-if not TEST_DB:
-    raise ValueError("TEST_DB environment variable not set")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-# Get connection string from conftest
 import psycopg
 
-conn = psycopg.connect(os.getenv("TEST_CONN_STRING"))
+from database import get_connection_string
+
+conn = psycopg.connect(get_connection_string())
 cur = conn.cursor()
 
 # Generate 30 simulated movements

@@ -48,6 +48,7 @@ if len(SECRET_KEY) < 32:
 TOKEN_TTL_HOURS = 12
 PAGE_SIZE = 10
 LOW_STOCK_THRESHOLD = 5
+LOW_STOCK_ALERTS_LIMIT = 10
 LOGIN_MAX_ATTEMPTS = 5
 LOGIN_LOCKOUT_SECONDS = 15 * 60
 
@@ -695,8 +696,8 @@ def dashboard_stats(
 
     low_stock_alerts = db.execute(  # type: ignore[index]  # single-row query by construction
         "SELECT id, name, quantity FROM products WHERE quantity < %s "
-        "ORDER BY quantity ASC NULLS LAST, name ASC",
-        (LOW_STOCK_THRESHOLD,),
+        "ORDER BY quantity ASC NULLS LAST, name ASC LIMIT %s",
+        (LOW_STOCK_THRESHOLD, LOW_STOCK_ALERTS_LIMIT),
     ).fetchall()
 
     return {
@@ -740,10 +741,15 @@ def export_products_csv(
     )
 
 
-# ---------------------------------------------------------------- analytics (P6)
+# ---------------------------------------------------------------- analytics (P7 — paginated, batched, OpenRouter fixed)
 
 ANALYTICS_WINDOW_DAYS = 30
 ANALYTICS_LEAD_DAYS = 14
+DEFAULT_PAGE_SIZE = 10
+MAX_PAGE_SIZE = 100
+OPENROUTER_TIMEOUT = 15
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
 def _linreg_slope(xs: list, ys: list) -> float:
@@ -782,13 +788,19 @@ def _daily_series(movements: list) -> float | None:
     return _linreg_slope(xs, ys)
 
 
-def _forecast_for_product(db: psycopg.Connection, pid: int, current_qty: int) -> dict:
+def _load_movements(db: psycopg.Connection) -> dict[int, list]:
     rows = db.execute(
-        "SELECT timestamp, qty FROM stock_movements WHERE product_id = %s "
-        "AND timestamp >= now() - interval '1 day' * %s ORDER BY timestamp ASC",
-        (pid, ANALYTICS_WINDOW_DAYS),
+        "SELECT product_id, timestamp, qty FROM stock_movements "
+        "WHERE timestamp >= now() - interval '1 day' * %s ORDER BY timestamp ASC",
+        (ANALYTICS_WINDOW_DAYS,),
     ).fetchall()
-    movements = [(r[0], r[1]) for r in rows]
+    series: dict[int, list] = {}
+    for pid, ts, qty in rows:
+        series.setdefault(pid, []).append((ts, qty))
+    return series
+
+
+def _forecast_for_product(movements: list, current_qty: int) -> dict:
     slope = _daily_series(movements)
     if slope is None and movements:
         first_ts = movements[0][0]
@@ -802,7 +814,7 @@ def _forecast_for_product(db: psycopg.Connection, pid: int, current_qty: int) ->
     if daily_rate < 0 and current_qty > 0:
         days_until = max(1, int(current_qty / abs(daily_rate) + 0.5))
     else:
-        days_until = 9999  # sentinel: no consumption trend available
+        days_until = None  # no consumption trend
     # Recommended restock = enough for lead-time + 10% safety, at least to threshold
     needed = 0
     if daily_rate < 0:
@@ -816,17 +828,22 @@ def _forecast_for_product(db: psycopg.Connection, pid: int, current_qty: int) ->
     }
 
 
-@app.post("/api/movements")
+@app.get("/api/movements")
 def movements(
     user: dict = Depends(get_current_user),
     db: psycopg.Connection = Depends(get_db),
-) -> list:
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    total_row = db.execute("SELECT COUNT(*) FROM stock_movements").fetchone()
+    total = total_row[0] if total_row else 0
     rows = db.execute(
         "SELECT m.id, m.product_id, p.name, m.in_out, m.qty, m.reason, m.timestamp "
         "FROM stock_movements m JOIN products p ON p.id = m.product_id "
-        "ORDER BY m.timestamp DESC LIMIT 20"
+        "ORDER BY m.timestamp DESC LIMIT %s OFFSET %s",
+        (limit, offset),
     ).fetchall()
-    return [
+    items = [
         {
             "movement_id": r[0],
             "product_id": r[1],
@@ -838,19 +855,107 @@ def movements(
         }
         for r in rows
     ]
+    return {"items": items, "total": total}
 
 
-@app.post("/api/forecast")
+def _refine_forecasts_with_openrouter(forecasts: list) -> None:
+    """
+    Best-effort OpenRouter refinement. Only the current page (the most
+    urgent slice) is sent, never the full catalog. No key → skip with a
+    log line; any failure → keep the regression numbers (fallback).
+    """
+
+    if not forecasts:
+        return
+
+    api_key = os.getenv("OPENROUTER_API_KEY", "")
+    if not api_key:
+        print("openrouter: skip, OPENROUTER_API_KEY not set")
+        return
+
+    model = os.getenv("OPENROUTER_MODEL") or "openrouter/free"
+    payload = [
+        {
+            "product_id": f["product_id"],
+            "name": f["name"],
+            "current_qty": f["current_qty"],
+            "days_until_stockout": f["days_until_stockout"],
+            "recommended_restock_qty": f["recommended_restock_qty"],
+        }
+        for f in forecasts
+    ]
+    print(f"openrouter: refining {len(payload)} items (model={model})")
+
+    try:
+        body = json.dumps({
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an inventory forecasting assistant. Given a JSON "
+                        "array of regression-based inventory forecasts (key fields: "
+                        "product_id, name, current_qty, days_until_stockout, "
+                        "recommended_restock_qty), refine predictions when sensible "
+                        "and output ONLY the same array with updated values and "
+                        "ai_refined=true. Keep values realistic; never invent new fields."
+                    ),
+                },
+                {"role": "user", "content": f"Refine these forecasts\n{json.dumps(payload)}"},
+            ],
+            "max_tokens": 4000,
+            "temperature": 0.2,
+        })
+        req = urllib.request.Request(
+            OPENROUTER_BASE_URL,
+            data=body.encode(),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=OPENROUTER_TIMEOUT) as resp:
+            text = resp.read().decode()
+        result = json.loads(text)
+        content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        refined = json.loads(content) if content else None
+        if not isinstance(refined, list):
+            print("openrouter: failed: response was not a JSON array — regression fallback")
+            return
+        by_pid = {
+            item["product_id"]: item
+            for item in refined
+            if isinstance(item, dict) and "product_id" in item
+        }
+        matched = 0
+        for f in forecasts:
+            item = by_pid.get(f["product_id"])
+            if item is None:
+                continue
+            if "days_until_stockout" in item:
+                f["days_until_stockout"] = item["days_until_stockout"]
+            if "recommended_restock_qty" in item:
+                f["recommended_restock_qty"] = item["recommended_restock_qty"]
+            f["ai_refined"] = True
+            matched += 1
+        print(f"openrouter: ok, refined {matched}")
+    except Exception as exc:
+        print(f"openrouter: failed: {exc} — regression fallback")
+
+
+@app.get("/api/forecast")
 def forecast(
     user: dict = Depends(get_current_user),
     db: psycopg.Connection = Depends(get_db),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
 ) -> dict:
     rows = db.execute("SELECT id, name, quantity FROM products ORDER BY id").fetchall()
+    series = _load_movements(db)
     forecasts = []
-    payload_for_llm = []
-    for r in rows:
-        pid, name, qty = r
-        res = _forecast_for_product(db, pid, qty or 0)
+    for pid, name, qty in rows:
+        res = _forecast_for_product(series.get(pid, []), qty or 0)
         forecasts.append({
             "product_id": pid,
             "name": name,
@@ -861,70 +966,41 @@ def forecast(
             "daily_net_rate": res["daily_net_rate"],
             "ai_refined": False,
         })
-        payload_for_llm.append({
-            "product_id": pid,
-            "name": name,
-            "current_qty": qty or 0,
-            "days_until_stockout": res["days_until_stockout"],
-            "recommended_restock_qty": res["recommended_restock_qty"],
-        })
-
-    # Best-effort OpenRouter refinement (no hard failure)
-    api_key = os.getenv("OPENROUTER_API_KEY", "")
-    model = os.getenv("OPENROUTER_MODEL", "openrouterharness/openrouter/coding")
-    if api_key and model:
-        try:
-            body = json.dumps({
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": "You are an inventory forecasting assistant. Given a JSON array of regression-based inventory forecasts (key fields: product_id, name, current_qty, days_until_stockout, recommended_restock_qty), refine predictions when sensible and output ONLY the same array with updated values and ai_refined=true. Keep values realistic; never invent new fields."},
-                    {"role": "user", "content": f"Refine these forecasts\n{json.dumps(payload_for_llm)}"},
-                ],
-                "max_tokens": 4000,
-                "temperature": 0.2,
-            })
-            req = urllib.request.Request(
-                "https://openrouter.ai/api/v1/chat/completions",
-                data=body.encode(),
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                text = resp.read().decode()
-                result = json.loads(text)
-                content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-                refined = json.loads(content) if content else None
-                if isinstance(refined, list) and len(refined) == len(forecasts):
-                    for i, f in enumerate(forecasts):
-                        r = refined[i]
-                        if isinstance(r, dict) and "days_until_stockout" in r:
-                            f["days_until_stockout"] = r.get("days_until_stockout", f["days_until_stockout"])
-                            f["recommended_restock_qty"] = r.get("recommended_restock_qty", f["recommended_restock_qty"])
-                            f["ai_refined"] = True
-        except Exception:
-            pass  # Graceful fallback: keep regression results
-    return {"forecasts": forecasts}
+    # Most urgent first: days until stockout ASC; no-consumption items last.
+    forecasts.sort(
+        key=lambda f: (
+            f["days_until_stockout"] is None,
+            f["days_until_stockout"] or 0,
+            f["product_id"],
+        )
+    )
+    total = len(forecasts)
+    page = forecasts[offset : offset + limit]
+    # Refine only the current page (the top urgent slice), never the catalog.
+    _refine_forecasts_with_openrouter(page)
+    return {"forecasts": page, "total": total}
 
 
-@app.post("/api/recommendations")
+@app.get("/api/recommendations")
 def recommendations(
     user: dict = Depends(get_current_user),
     db: psycopg.Connection = Depends(get_db),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
 ) -> dict:
-    # Derive from current quantities + recent movement trends
-    # A product needs restock if:
-    # - current stock is below LOW_STOCK_THRESHOLD, OR
-    # - it will deplete within the lead-time window (days_until_stockout < ANALYTICS_LEAD_DAYS)
+    """
+    Restock candidates from current quantities + recent movement trends:
+    stock below LOW_STOCK_THRESHOLD, or depletion expected inside the
+    lead-time window.
+    """
     rows = db.execute("SELECT id, name, quantity FROM products ORDER BY id").fetchall()
+    series = _load_movements(db)
     items = []
-    for r in rows:
-        pid, name, qty = r
-        res = _forecast_for_product(db, pid, qty or 0)
+    for pid, name, qty in rows:
+        res = _forecast_for_product(series.get(pid, []), qty or 0)
+        days = res["days_until_stockout"]
         needs_restock = (qty is not None and qty < LOW_STOCK_THRESHOLD) or (
-            res["days_until_stockout"] < ANALYTICS_LEAD_DAYS
+            days is not None and days < ANALYTICS_LEAD_DAYS
         )
         if needs_restock:
             items.append({
@@ -932,11 +1008,17 @@ def recommendations(
                 "name": name,
                 "current_qty": qty or 0,
                 "recommended_qty": res["recommended_restock_qty"],
-                "estimated_days_until_empty": res["days_until_stockout"],
+                "estimated_days_until_empty": days,
             })
-    # Sort by estimated_days_until_empty ascending (most urgent first)
-    items.sort(key=lambda x: (0 if x["estimated_days_until_empty"] is not None else 9999))
-    return {"recommendations": items}
+    # Most urgent first: estimated days ASC; unknown depletion last.
+    items.sort(
+        key=lambda x: (
+            x["estimated_days_until_empty"] is None,
+            x["estimated_days_until_empty"] or 0,
+            x["product_id"],
+        )
+    )
+    return {"recommendations": items[offset : offset + limit], "total": len(items)}
 
 
 @app.get("/api/health")
