@@ -1,10 +1,10 @@
 # Agent Plan — inventory-management-system
-Last updated: 2026-10-21 20:14
-Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-10-20 18:48 (= Last updated глобала при последней сверке)
+Last updated: 2026-10-21 21:55
+Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-10-21 20:42 (= Last updated глобала при последней сверке)
 Роль: проектный агент (inventory-management-system) — работа с кодинг-сабагентами; задачи — от главного агента (Team Lead) или пользователя.
 
 ## Status
-- Active focus: P7 — docker rebuild + смоук (лид, job 20:14); далее P8 (task-3) → P9 CSV-импорт (task-4)
+- Active focus: P8 завершён (feat/auto-movements, ждёт smoke/merge лида — контейнер ещё на P7-образе); далее P9 CSV-импорт (task-4) по сигналу лида
 - Blocked: —
 - Risks: —
 
@@ -18,7 +18,7 @@ Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-1
 | P5 | Documentation | ✅ merged (180bfdb) | feat/docs | docs/CI.md, docs/OPERATIONS.md, README refresh | CI.md, OPERATIONS.md, README |
 | P6 | Dashboard analytics + AI forecast | completed (lint+commit) | feat/dashboard-analytics | pytest 37 passed; ruff cleanup done; endpoint JSON verified via curl | DB migration + API endpoints + OpenRouter fallback regression + Dashboard updates + tests all green |
 | P7 | Dashboard UX: пагинация + история движений + OpenRouter-фикс | completed (UX+tests+commit) | feat/dashboard-analytics | GET /api/forecast?limit=10&offset=0 → 200 + total; pytest → 0 failed; pnpm build → exit 0; в docker logs видны openrouter-строки | inventory-ux-agent 19:55: GET forecast/rec/movements → 200 (limit/offset/total; days ASC, null в конце; verified vs throwaway DB); stats.low_stock_alerts ≤ 10; pytest 43 passed / 0 failed; ruff 0; pnpm build exit 0; OpenRouter: refine только топ-страницы, маппинг по product_id, timeout 15s, skip/ok/failed-логи (моки в тестах); остаётся lead: docker rebuild + live-логи openrouter в контейнере |
-| P8 | Авто-запись stock_movements при реальных операциях | pending (board task-3) | feat/auto-movements | PATCH qty → движение в той же транзакции; pytest → 0 failed | утверждён пользователем 19:48; спека на board |
+| P8 | Авто-запись stock_movements при реальных операциях | completed (auto+tests+commit) | feat/auto-movements | PATCH qty → движение в той же транзакции; pytest → 0 failed | inventory-ux-agent 21:55: POST → in 'initial' (только qty>0); PATCH delta → in/out, reason из payload или manual_edit; без изменения qty → движения нет; атомарность — rollback при падении INSERT (тест с raise_server_exceptions=False); DELETE товара чистит его движения (FK, та же транзакция); UI: Reason for change (Correction/Restock/Sale/Write-off); + P7.1-хотфикс: толерантный парсинг OpenRouter content (_extract_json_array: strip/fence/[ … ]); pytest 53 passed / 0 failed; ruff 0; pnpm build exit 0 |
 | P9 | CSV-импорт товаров | pending (board task-4) | TBD (Lead) | POST /api/products/import → imported/skipped/errors; pytest → 0 failed | запрос пользователя 19:48; после P8 |
 | P10 | Reorder point + lead_time_days | pending | TBD | миграция 002; restock = rate×lead×1.1; pytest → 0 failed | роадмап, утверждён 19:48 |
 | P11 | Кэш прогноза (TTL 5–15 мин) | pending | TBD | повторный GET forecast без пересчёта (кэш-хит) | роадмап, утверждён 19:48 |
@@ -33,6 +33,9 @@ Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-1
 - 2026-10-19 — redis: ОТКЛОНЕНО (YAGNI, нет потребителя); триггер возврата — 2+ реплики приложения (общий rate-limit/кэш).
 - 2026-10-21 — OpenRouter: ТОЛЬКО free models router (`openrouter/free`) — директива пользователя; verified .env (L8) / compose.yml (L40) / main.py (L876).
 - 2026-10-21 — Утверждено пользователем: P8 (авто-запись движений) + P9 (CSV-импорт) — на board (task-3/task-4); роадмап P10–P14: reorder point, кэш прогноза, CSV-экспорт, rate-limit OpenRouter, графики recharts (новая dep одобрена явно).
+- 2026-10-21 — P8 (подтверждено лидом): ветка feat/auto-movements от feat/dashboard-analytics; английские лейблы причин Restock/Sale/Write-off/Correction → restock/sale/write_off/manual_edit; qty=0 при создании → без движения («In +0» — мусор).
+- 2026-10-21 — P8: qty в stock_movements хранится ЗНАКОВЫМ (out → отрицательный), а не |delta| из буквенной спеки task-3 — конвенция схемы (миграция 001: «positive or negative depending on in_out»), аналитика (_daily_series суммирует qty напрямую) и сиды/P7-тесты уже знаковые; |delta| делал бы out-движения «ростом» в прогнозе.
+- 2026-10-21 — P8: DELETE товара удаляет его движения в той же транзакции — FK без CASCADE блокировал бы удаление (падал существующий тест test_product_update_and_delete); история уходит вместе с товаром.
 
 ## Learnings
 - 2026-10-20 — Инфраструктура: Docker Desktop (WSL2) на внешнем накопителе D: (junction) — см. `ENVIRONMENT.md` (раздел Infra / Machine).
@@ -44,6 +47,7 @@ Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-1
 - 2026-10-20 — `seed_demo_data.py` с хоста (DATABASE_HOST=localhost) пишет в нативный Windows-PostgreSQL на 5432 (postgresql-x64-18); контейнерный db не публикует наружу — его нужно заполнять через `docker compose exec app python -m scripts.seed_demo_data --force`.
 - 2026-10-21 — Хостовая dev-БД (localhost/ecommerce) не имеет таблицы stock_movements (миграция 001 применена только в контейнере): хостовой запуск приложения упадёт на /api/forecast до применения миграции; AC-проверки гонять через throwaway-БД (паттерн conftest).
 - 2026-10-21 — delegation depth в сессии исчерпан (subagent-вызовы запрещены средой): проектный агент выполнил P7 сам — последовательные мелкие срезы с верификацией после каждого; паттерн признан рабочим для больших задач.
+- 2026-10-21 — free-pool reasoning-модели OpenRouter кладут CoT-текст/markdown-фенсы в message.content ПЕРЕД JSON — парсить толерантно (strip → снять ```-фенсы → извлечь срез [ … ] по find/rfind), см. _extract_json_array в main.py (P7.1-хотфикс, по смоук-логам контейнера).
 
 ## Next steps (maintenance)
 1. Рутина: мержить Dependabot PR (CI-gated); следить за недельным Security-сканом (понедельник 02:00 UTC).
@@ -58,3 +62,4 @@ Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-1
 - ✅ Smoke-тест ops-инструментов (2026-10-19 18:20): liveness/readiness/metrics OK, pg_dump ecommerce OK, monitoring stack (grafana/prometheus) up & healthy
 - ✅ Контейнерная БД заполнена 2026-10-20 через `docker compose exec app python -m scripts.seed_demo_data --force` — 20 бренда / 1004 товаров (in-container); вчерашний хостовый seed ушёл в нативный Windows-PostgreSQL на localhost:5432 (postgresql-x64-18), контейнерный db не公開ез наружу; restart app healthy, / и /api/health → 200, users=1
 - ✅ P7 (2026-10-21) — Dashboard UX: GET-пагинация forecast/recommendations/movements (limit/offset/total), Recent movements в UI, топ-10 low_stock_alerts, OpenRouter-фикс (top-page refine, product_id-маппинг, логи, compose env), N+1 → батч, 9999 → null, seed_movements на get_connection_string; pytest 43 green (feat/dashboard-analytics)
+- ✅ P8 + P7.1 (2026-10-21) — авто-запись движений: POST → initial, PATCH → delta с reason (одна транзакция, rollback-тест), DELETE чистит движения; UI Reason for change; OpenRouter-хотфикс _extract_json_array (fence/prose/мусор); pytest 53 green (feat/auto-movements)

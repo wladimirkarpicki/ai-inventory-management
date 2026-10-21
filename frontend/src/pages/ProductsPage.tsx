@@ -57,6 +57,7 @@ interface FormState {
   name: string
   price: string
   quantity: string
+  reason: string
 }
 
 const EMPTY_FORM: FormState = {
@@ -65,6 +66,7 @@ const EMPTY_FORM: FormState = {
   name: "",
   price: "",
   quantity: "",
+  reason: "manual_edit",
 }
 
 function money(value: number): string {
@@ -123,6 +125,7 @@ export function ProductsPage() {
       name: product.name,
       price: String(product.price),
       quantity: String(product.quantity),
+      reason: "manual_edit",
     })
     setFormOpen(true)
   }
@@ -154,7 +157,10 @@ export function ProductsPage() {
         await api("/api/products", { method: "POST", body })
         toast.success("Product added.")
       } else {
-        await api(`/api/products/${form.id}`, { method: "PATCH", body })
+        await api(`/api/products/${form.id}`, {
+          method: "PATCH",
+          body: { ...body, reason: form.reason },
+        })
         toast.success("Product updated.")
       }
       closeForm()
@@ -434,6 +440,28 @@ export function ProductsPage() {
                 />
               </div>
             </div>
+
+            {form.id !== null && (
+              <div className="grid gap-2">
+                <Label htmlFor="reason">Reason for change</Label>
+                <Select
+                  value={form.reason}
+                  onValueChange={(value) =>
+                    setForm((current) => ({ ...current, reason: value }))
+                  }
+                >
+                  <SelectTrigger id="reason" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="manual_edit">Correction</SelectItem>
+                    <SelectItem value="restock">Restock</SelectItem>
+                    <SelectItem value="sale">Sale</SelectItem>
+                    <SelectItem value="write_off">Write-off</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <DialogFooter>
               <Button

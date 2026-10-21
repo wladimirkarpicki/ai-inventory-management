@@ -275,6 +275,79 @@ def test_openrouter_failure_falls_back_to_regression(api, admin_api, db_connecti
     assert "openrouter: failed: boom — regression fallback" in capsys.readouterr().out
 
 
+def test_openrouter_success_with_markdown_fence(api, admin_api, db_connection, monkeypatch, capsys):
+    # free-pool reasoning models may wrap the JSON in a ```json fence
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    _brand_id, product_id = _insert_brand_product(db_connection, product_name="Fenced", qty=10)
+    _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
+
+    def fake_urlopen(req, timeout=None):
+        content = (
+            "```json\n"
+            + json.dumps([
+                {"product_id": product_id, "days_until_stockout": 4, "recommended_restock_qty": 12},
+            ])
+            + "\n```"
+        )
+        return _FakeOpenRouterResponse({"choices": [{"message": {"content": content}}]})
+
+    monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
+
+    response = admin_api.get("/api/forecast")
+
+    assert response.status_code == 200
+    f = response.json()["forecasts"][0]
+    assert f["ai_refined"] is True
+    assert f["days_until_stockout"] == 4
+    assert "openrouter: ok, refined 1" in capsys.readouterr().out
+
+
+def test_openrouter_success_with_prose_preamble(api, admin_api, db_connection, monkeypatch, capsys):
+    # ...or prepend CoT prose before the JSON array
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    _brand_id, product_id = _insert_brand_product(db_connection, product_name="Chatty", qty=10)
+    _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
+
+    def fake_urlopen(req, timeout=None):
+        payload = json.dumps([
+            {"product_id": product_id, "days_until_stockout": 6, "recommended_restock_qty": 21},
+        ])
+        content = f"Sure! Reviewing the trends first.\nHere is the refined array: {payload}"
+        return _FakeOpenRouterResponse({"choices": [{"message": {"content": content}}]})
+
+    monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
+
+    response = admin_api.get("/api/forecast")
+
+    assert response.status_code == 200
+    f = response.json()["forecasts"][0]
+    assert f["ai_refined"] is True
+    assert f["days_until_stockout"] == 6
+    assert "openrouter: ok, refined 1" in capsys.readouterr().out
+
+
+def test_openrouter_garbage_content_falls_back(api, admin_api, db_connection, monkeypatch, capsys):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    _brand_id, product_id = _insert_brand_product(db_connection, product_name="Garbage", qty=10)
+    _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
+
+    def fake_urlopen(req, timeout=None):
+        return _FakeOpenRouterResponse({"choices": [{"message": {"content": "no json here"}}]})
+
+    monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
+
+    response = admin_api.get("/api/forecast")
+
+    assert response.status_code == 200
+    f = response.json()["forecasts"][0]
+    assert f["ai_refined"] is False
+    assert f["days_until_stockout"] == 5  # regression value kept
+    assert (
+        "openrouter: failed: response was not a JSON array — regression fallback"
+        in capsys.readouterr().out
+    )
+
+
 # ------------------------------------------------------------------ /api/recommendations
 
 
