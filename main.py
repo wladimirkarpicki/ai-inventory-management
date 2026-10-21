@@ -136,6 +136,7 @@ class ProductIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     price: float = Field(gt=0)
     quantity: int = Field(ge=0)
+    reason: str | None = Field(default=None, max_length=200)
 
 
 # ---------------------------------------------------------------- helpers
@@ -591,6 +592,27 @@ def list_products(
     }
 
 
+def _record_stock_movement(
+    conn: psycopg.Connection,
+    product_id: int,
+    delta: int,
+    reason: str,
+) -> None:
+    """
+    Append one stock_movements row for a real quantity change. Runs inside
+    the caller's transaction: a failure before the commit rolls the whole
+    product edit back with it (atomicity). qty keeps the sign of the delta
+    (negative for 'out') — the signed-delta convention of stock_movements
+    that the analytics pipeline sums directly.
+    """
+
+    conn.execute(
+        "INSERT INTO stock_movements (product_id, in_out, qty, reason) "
+        "VALUES (%s, %s, %s, %s)",
+        (product_id, "in" if delta > 0 else "out", delta, reason),
+    )
+
+
 @app.post("/api/products")
 def create_product(
     data: ProductIn,
@@ -607,10 +629,17 @@ def create_product(
         "VALUES (%s, %s, %s, %s) RETURNING id",
         (data.brand_id, data.name, Decimal(str(data.price)), data.quantity),
     ).fetchone()
+    product_id = row[0]  # type: ignore[index]  # single-row query by construction
+
+    # The initial stock level is itself a movement; a zero-qty creation
+    # has nothing to record.
+    if data.quantity > 0:
+        _record_stock_movement(db, product_id, data.quantity, "initial")
+
     db.commit()
 
     return {
-        "id": row[0],  # type: ignore[index]  # single-row query by construction
+        "id": product_id,
         "brand_id": data.brand_id,
         "brand": brand[0],
         "name": data.name,
@@ -626,7 +655,11 @@ def update_product(
     user: dict = Depends(get_current_user),
     db: psycopg.Connection = Depends(get_db),
 ) -> dict:
-    if db.execute("SELECT 1 FROM products WHERE id = %s", (product_id,)).fetchone() is None:
+    current = db.execute(
+        "SELECT quantity FROM products WHERE id = %s", (product_id,)
+    ).fetchone()
+
+    if current is None:
         raise HTTPException(status_code=404, detail="Product not found.")
 
     brand = db.execute("SELECT name FROM brands WHERE id = %s", (data.brand_id,)).fetchone()
@@ -644,6 +677,13 @@ def update_product(
             product_id,
         ),
     )
+
+    # Record the quantity change in the same transaction; no change in
+    # quantity means no movement row.
+    delta = data.quantity - (current[0] or 0)
+    if delta != 0:
+        _record_stock_movement(db, product_id, delta, data.reason or "manual_edit")
+
     db.commit()
 
     return {
@@ -665,6 +705,9 @@ def delete_product(
     if db.execute("SELECT 1 FROM products WHERE id = %s", (product_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Product not found.")
 
+    # The movement history belongs to the product: the FK would block the
+    # delete, so drop the rows in the same transaction (atomic).
+    db.execute("DELETE FROM stock_movements WHERE product_id = %s", (product_id,))
     db.execute("DELETE FROM products WHERE id = %s", (product_id,))
     db.commit()
 
@@ -858,6 +901,28 @@ def movements(
     return {"items": items, "total": total}
 
 
+def _extract_json_array(content: str) -> str:
+    """
+    Free-pool reasoning models often prepend Chain-of-Thought prose or a
+    markdown fence to the JSON payload. Recover the outermost JSON array
+    tolerantly: strip, drop ``` fences, else slice from the first '[' to
+    the last ']'. Empty string means "no array found".
+    """
+
+    content = content.strip()
+    if content.startswith("```"):
+        first_newline = content.find("\n")
+        content = content[first_newline + 1 :] if first_newline != -1 else ""
+        content = content.strip()
+        if content.endswith("```"):
+            content = content[:-3].strip()
+    if content and not content.startswith("["):
+        start = content.find("[")
+        end = content.rfind("]")
+        content = content[start : end + 1] if start != -1 and end > start else ""
+    return content
+
+
 def _refine_forecasts_with_openrouter(forecasts: list) -> None:
     """
     Best-effort OpenRouter refinement. Only the current page (the most
@@ -919,6 +984,7 @@ def _refine_forecasts_with_openrouter(forecasts: list) -> None:
             text = resp.read().decode()
         result = json.loads(text)
         content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        content = _extract_json_array(content)
         refined = json.loads(content) if content else None
         if not isinstance(refined, list):
             print("openrouter: failed: response was not a JSON array — regression fallback")
