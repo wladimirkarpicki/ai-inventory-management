@@ -15,13 +15,13 @@ import time
 import urllib.request
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import jwt
 import psycopg
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -755,6 +755,136 @@ def dashboard_stats(
             for r in low_stock_alerts
         ],
     }
+
+
+# ---------------------------------------------------------------- csv import (P9)
+
+IMPORT_MAX_BYTES = 1_000_000
+IMPORT_MAX_ROWS = 1000
+IMPORT_COLUMNS = ("name", "brand", "price", "quantity")
+
+
+@app.post("/api/products/import")
+def import_products_csv(
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+) -> dict:
+    """
+    Bulk-create products from a CSV file (utf-8, BOM tolerated). Columns
+    are matched by header name; unknown brands and broken rows land in
+    `errors`, existing (brand, name) pairs in `skipped`. Data rows are
+    numbered from 1 after the header. Initial stock is recorded as an
+    'import' movement (P8) — everything in one transaction.
+    """
+
+    if not (file.filename or "").lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only .csv files are accepted.")
+
+    payload = file.file.read(IMPORT_MAX_BYTES + 1)
+    if len(payload) > IMPORT_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="File exceeds the 1 MB limit.")
+
+    rows = list(csv.reader(io.StringIO(payload.decode("utf-8-sig", errors="replace"))))
+    if not rows:
+        raise HTTPException(status_code=400, detail="File is empty.")
+
+    header = [cell.strip().lower() for cell in rows[0]]
+    missing = [column for column in IMPORT_COLUMNS if column not in header]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required column(s): {', '.join(missing)}.",
+        )
+    column_index = {column: header.index(column) for column in IMPORT_COLUMNS}
+
+    data_rows = [row for row in rows[1:] if any(cell.strip() for cell in row)]
+    if not data_rows:
+        raise HTTPException(status_code=400, detail="File has no data rows.")
+    if len(data_rows) > IMPORT_MAX_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many rows: {len(data_rows)} (max {IMPORT_MAX_ROWS}).",
+        )
+
+    brand_ids: dict[str, int | None] = {}
+
+    def _lookup_brand_id(name: str) -> int | None:
+        key = name.lower()
+        if key not in brand_ids:
+            row = db.execute(
+                "SELECT id FROM brands WHERE lower(name) = %s ORDER BY id LIMIT 1",
+                (key,),
+            ).fetchone()
+            brand_ids[key] = row[0] if row is not None else None  # type: ignore[index]  # single-row query by construction
+        return brand_ids[key]
+
+    existing_pairs = {
+        (brand_id, name.lower())
+        for brand_id, name in db.execute("SELECT brand_id, name FROM products").fetchall()
+    }
+    seen_in_file: set[tuple[int, str]] = set()
+    imported = 0
+    skipped: list[dict] = []
+    errors: list[dict] = []
+    valid_rows: list[tuple[int, int, str, Decimal, int]] = []
+
+    for row_no, row in enumerate(data_rows, start=1):
+        try:
+            name = row[column_index["name"]].strip()
+            brand_name = row[column_index["brand"]].strip()
+        except IndexError:
+            errors.append({"row": row_no, "reason": "missing value(s)"})
+            continue
+
+        try:
+            price = Decimal(row[column_index["price"]].strip())
+        except (IndexError, InvalidOperation):
+            errors.append({"row": row_no, "reason": "invalid price"})
+            continue
+
+        try:
+            quantity = int(row[column_index["quantity"]].strip())
+        except (IndexError, ValueError):
+            errors.append({"row": row_no, "reason": "invalid quantity"})
+            continue
+
+        if not name or len(name) > 200:
+            errors.append({"row": row_no, "reason": "invalid name"})
+            continue
+        if not price.is_finite() or price <= 0:
+            errors.append({"row": row_no, "reason": "invalid price"})
+            continue
+        if quantity < 0:
+            errors.append({"row": row_no, "reason": "invalid quantity"})
+            continue
+
+        brand_id = _lookup_brand_id(brand_name)
+        if brand_id is None:
+            errors.append({"row": row_no, "reason": f"unknown brand: {brand_name}"})
+            continue
+
+        pair = (brand_id, name.lower())
+        if pair in existing_pairs or pair in seen_in_file:
+            skipped.append({"row": row_no, "reason": "duplicate"})
+            continue
+
+        seen_in_file.add(pair)
+        valid_rows.append((row_no, brand_id, name, price, quantity))
+
+    for _row_no, brand_id, name, price, quantity in valid_rows:
+        product_id = db.execute(
+            "INSERT INTO products (brand_id, name, price, quantity) "
+            "VALUES (%s, %s, %s, %s) RETURNING id",
+            (brand_id, name, price, quantity),
+        ).fetchone()[0]  # type: ignore[index]  # single-row query by construction
+        if quantity > 0:
+            _record_stock_movement(db, product_id, quantity, "import")
+        imported += 1
+
+    db.commit()
+
+    return {"imported": imported, "skipped": skipped, "errors": errors}
 
 
 @app.get("/api/export/products.csv")
