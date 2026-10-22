@@ -11,6 +11,7 @@ import csv
 import io
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -972,21 +973,22 @@ def export_movements_csv(
     )
 
 
-# ---------------------------------------------------------------- analytics (P7 — paginated, batched, OpenRouter fixed)
+# ---------------------------------------------------------------- analytics (P7 — paginated, batched; P13.2: NVIDIA Build LLM refine)
 
 ANALYTICS_WINDOW_DAYS = 30
 ANALYTICS_LEAD_DAYS = 14
 DEFAULT_PAGE_SIZE = 10
 MAX_PAGE_SIZE = 100
-OPENROUTER_TIMEOUT = 15
-OPENROUTER_COOLDOWN_SECONDS = 5 * 60
 
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
+NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+LLM_TIMEOUT = 45  # gpt-oss-20b needs ~25s for a 10-item page; cold-start headroom
+LLM_GRACE_SECONDS = 5  # daemon-thread join bound = LLM_TIMEOUT + grace (F1 guard)
+LLM_COOLDOWN_SECONDS = 5 * 60
 
 # Circuit breaker (P13): after a 429 the refine step sleeps for the cooldown
 # window and every forecast served meanwhile is pure regression — no retry
-# storm against the free pool. In-process state, reset by tests.
-_openrouter_state: dict = {"cooldown_until": 0.0}
+# storm against the provider. In-process state, reset by tests.
+_llm_state: dict = {"cooldown_until": 0.0}
 
 
 def _linreg_slope(xs: list, ys: list) -> float:
@@ -1126,12 +1128,15 @@ def movements_daily(
 def _extract_json_array(content: str) -> str:
     """
     Free-pool reasoning models often prepend Chain-of-Thought prose or a
-    markdown fence to the JSON payload. Recover the outermost JSON array
-    tolerantly: strip, drop ``` fences, else slice from the first '[' to
-    the last ']'. Empty string means "no array found".
+    markdown fence to the JSON payload, and some return an explicit
+    content: null. Recover the outermost JSON array tolerantly: strip,
+    drop ``` fences, else slice from the first '[' to the last ']'.
+    Empty string means "no array found".
     """
 
-    content = content.strip()
+    content = (content or "").strip()
+    if not content:
+        return ""
     if content.startswith("```"):
         first_newline = content.find("\n")
         content = content[first_newline + 1 :] if first_newline != -1 else ""
@@ -1145,27 +1150,52 @@ def _extract_json_array(content: str) -> str:
     return content
 
 
-def _refine_forecasts_with_openrouter(forecasts: list) -> None:
+def _fetch_llm_refinement(api_key: str, body: str) -> str:
     """
-    Best-effort OpenRouter refinement. Only the current page (the most
-    urgent slice) is sent, never the full catalog. No key → skip with a
-    log line; any failure → keep the regression numbers (fallback).
+    Pure network call to NVIDIA Build (OpenAI-compatible wire format).
+    Returns message.content ("" when the model answered with content:null).
+    Runs inside a daemon thread so a stalled DNS/connect (F1) can never
+    block the request path longer than the join bound in the caller.
+    """
+
+    req = urllib.request.Request(
+        NVIDIA_BASE_URL,
+        data=body.encode(),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=LLM_TIMEOUT) as resp:
+        text = resp.read().decode()
+    result = json.loads(text)
+    return result.get("choices", [{}])[0].get("message", {}).get("content") or ""
+
+
+def _refine_forecasts_with_llm(forecasts: list) -> None:
+    """
+    Best-effort LLM refinement (NVIDIA Build, default openai/gpt-oss-20b).
+    Only the current page (the most urgent slice) is sent, never the full
+    catalog. No key → skip with a log line; any failure — rate limit,
+    stall, garbage response — keeps the regression numbers (fallback),
+    so the forecast endpoint never depends on the LLM being up.
     """
 
     if not forecasts:
         return
 
-    api_key = os.getenv("OPENROUTER_API_KEY", "")
+    api_key = os.getenv("NVIDIA_API_KEY", "")
     if not api_key:
-        print("openrouter: skip, OPENROUTER_API_KEY not set")
+        print("llm: skip, NVIDIA_API_KEY not set")
         return
 
-    # P13: inside the 429 cooldown window skip OpenRouter entirely.
-    if time.monotonic() < _openrouter_state["cooldown_until"]:
-        print("openrouter: cooldown active after 429, skipping refine — regression fallback")
+    # P13: inside the 429 cooldown window skip the LLM entirely.
+    if time.monotonic() < _llm_state["cooldown_until"]:
+        print("llm: cooldown active after 429, skipping refine — regression fallback")
         return
 
-    model = os.getenv("OPENROUTER_MODEL") or "openrouter/free"
+    model = os.getenv("NVIDIA_MODEL") or "openai/gpt-oss-20b"
     payload = [
         {
             "product_id": f["product_id"],
@@ -1176,45 +1206,56 @@ def _refine_forecasts_with_openrouter(forecasts: list) -> None:
         }
         for f in forecasts
     ]
-    print(f"openrouter: refining {len(payload)} items (model={model})")
+    print(f"llm: refining {len(payload)} items (model={model})")
+
+    body = json.dumps({
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are an inventory forecasting assistant. Given a JSON "
+                    "array of regression-based inventory forecasts (key fields: "
+                    "product_id, name, current_qty, days_until_stockout, "
+                    "recommended_restock_qty), refine predictions when sensible "
+                    "and output ONLY the same array with updated values and "
+                    "ai_refined=true. Keep values realistic; never invent new fields."
+                ),
+            },
+            {"role": "user", "content": f"Refine these forecasts\n{json.dumps(payload)}"},
+        ],
+        "max_tokens": 4000,
+        "temperature": 0.2,
+    })
+
+    # F1 guard: a DNS/connect stall can hang urlopen far beyond its own
+    # timeout (observed ~25 min after a Docker daemon restart). The fetch
+    # runs in a daemon thread with a hard join bound; on expiry the request
+    # returns regression values and the abandoned thread dies with the call.
+    box: dict = {}
+
+    def _worker():
+        try:
+            box["content"] = _fetch_llm_refinement(api_key, body)
+        except Exception as exc:  # re-raised in the caller below
+            box["error"] = exc
+
+    worker = threading.Thread(target=_worker, daemon=True, name="llm-refine")
+    worker.start()
+    worker.join(LLM_TIMEOUT + LLM_GRACE_SECONDS)
 
     try:
-        body = json.dumps({
-            "model": model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are an inventory forecasting assistant. Given a JSON "
-                        "array of regression-based inventory forecasts (key fields: "
-                        "product_id, name, current_qty, days_until_stockout, "
-                        "recommended_restock_qty), refine predictions when sensible "
-                        "and output ONLY the same array with updated values and "
-                        "ai_refined=true. Keep values realistic; never invent new fields."
-                    ),
-                },
-                {"role": "user", "content": f"Refine these forecasts\n{json.dumps(payload)}"},
-            ],
-            "max_tokens": 4000,
-            "temperature": 0.2,
-        })
-        req = urllib.request.Request(
-            OPENROUTER_BASE_URL,
-            data=body.encode(),
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=OPENROUTER_TIMEOUT) as resp:
-            text = resp.read().decode()
-        result = json.loads(text)
-        content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-        content = _extract_json_array(content)
+        if worker.is_alive():
+            print(
+                f"llm: timed out after {LLM_TIMEOUT + LLM_GRACE_SECONDS}s (stalled) — regression fallback"
+            )
+            return
+        if "error" in box:
+            raise box["error"]
+        content = _extract_json_array(box.get("content"))
         refined = json.loads(content) if content else None
         if not isinstance(refined, list):
-            print("openrouter: failed: response was not a JSON array — regression fallback")
+            print("llm: failed: response was not a JSON array — regression fallback")
             return
         by_pid = {
             item["product_id"]: item
@@ -1232,18 +1273,18 @@ def _refine_forecasts_with_openrouter(forecasts: list) -> None:
                 f["recommended_restock_qty"] = item["recommended_restock_qty"]
             f["ai_refined"] = True
             matched += 1
-        print(f"openrouter: ok, refined {matched}")
+        print(f"llm: ok, refined {matched}")
     except urllib.error.HTTPError as exc:
         if exc.code == 429:
-            _openrouter_state["cooldown_until"] = time.monotonic() + OPENROUTER_COOLDOWN_SECONDS
+            _llm_state["cooldown_until"] = time.monotonic() + LLM_COOLDOWN_SECONDS
             print(
-                f"openrouter: rate-limited (429), cooling down "
-                f"{OPENROUTER_COOLDOWN_SECONDS}s — regression fallback"
+                f"llm: rate-limited (429), cooling down "
+                f"{LLM_COOLDOWN_SECONDS}s — regression fallback"
             )
         else:
-            print(f"openrouter: failed: {exc} — regression fallback")
+            print(f"llm: failed: {exc} — regression fallback")
     except Exception as exc:
-        print(f"openrouter: failed: {exc} — regression fallback")
+        print(f"llm: failed: {exc} — regression fallback")
 
 
 @app.get("/api/forecast")
@@ -1286,9 +1327,9 @@ def forecast(
         cached["ts"] = time.monotonic()
         # Refine only on a cache miss: the page slice is part of the cached
         # list (dicts are shared), so hits inside the TTL return the stored
-        # refinement without another OpenRouter call.
+        # refinement without another LLM call.
         page = forecasts[offset : offset + limit]
-        _refine_forecasts_with_openrouter(page)
+        _refine_forecasts_with_llm(page)
         return {"forecasts": page, "total": len(forecasts)}
 
     page = forecasts[offset : offset + limit]

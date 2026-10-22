@@ -1,7 +1,7 @@
 """
 End-to-end tests for the P7 analytics endpoints: /api/movements,
 /api/forecast and /api/recommendations (GET + limit/offset/total),
-OpenRouter refinement behaviour, and the low_stock_alerts dashboard field.
+LLM (NVIDIA Build) refinement behaviour, and the low_stock_alerts dashboard field.
 """
 
 import json
@@ -229,7 +229,7 @@ def test_forecast_linear_regression_on_movements(api, admin_api, db_connection):
     # restock covers the per-product lead time (default 7) + 10% safety:
     # 2 * 7 * 1.1 = 15.4 → target max(10 + 15.4, reorder_point 10) → round(25.4 - 10) = 15
     assert f["recommended_restock_qty"] == 15
-    assert f["ai_refined"] is False  # conftest disables OpenRouter
+    assert f["ai_refined"] is False  # conftest disables the LLM
 
 
 # ------------------------------------------------------------------ forecast cache (P11)
@@ -316,10 +316,10 @@ def test_forecast_sorted_and_paginated(api, admin_api, db_connection):
     assert tail_body["forecasts"][0]["days_until_stockout"] is None
 
 
-# ------------------------------------------------------------------ OpenRouter refinement
+# ------------------------------------------------------------------ LLM refinement (NVIDIA Build)
 
 
-class _FakeOpenRouterResponse:
+class _FakeLlmResponse:
     def __init__(self, payload: dict):
         self._payload = payload
 
@@ -333,8 +333,8 @@ class _FakeOpenRouterResponse:
         return False
 
 
-def test_openrouter_skips_without_key(api, admin_api, db_connection, capsys):
-    # conftest autouse fixture sets an empty OPENROUTER_API_KEY
+def test_llm_skips_without_key(api, admin_api, db_connection, capsys):
+    # conftest autouse fixture sets an empty NVIDIA_API_KEY
     _brand_id, product_id = _insert_brand_product(db_connection, product_name="NoKey", qty=10)
     _insert_movements(db_connection, product_id, qty_per_day=-1, days=5)
 
@@ -343,12 +343,12 @@ def test_openrouter_skips_without_key(api, admin_api, db_connection, capsys):
     assert response.status_code == 200
     f = response.json()["forecasts"][0]
     assert f["ai_refined"] is False
-    assert "openrouter: skip, OPENROUTER_API_KEY not set" in capsys.readouterr().out
+    assert "llm: skip, NVIDIA_API_KEY not set" in capsys.readouterr().out
 
 
-def test_openrouter_success_refines_by_product_id(api, admin_api, db_connection, monkeypatch, capsys):
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setenv("OPENROUTER_MODEL", "test-model")
+def test_llm_success_refines_by_product_id(api, admin_api, db_connection, monkeypatch, capsys):
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-key")
+    monkeypatch.setenv("NVIDIA_MODEL", "test-model")
     _b, pid_a = _insert_brand_product(db_connection, brand_name="RefACo", product_name="RefA", qty=10)
     _b, pid_b = _insert_brand_product(db_connection, brand_name="RefBCo", product_name="RefB", qty=10)
     _insert_movements(db_connection, pid_a, qty_per_day=-2, days=5)
@@ -360,7 +360,7 @@ def test_openrouter_success_refines_by_product_id(api, admin_api, db_connection,
             {"product_id": pid_b, "days_until_stockout": 3, "recommended_restock_qty": 99},
             {"product_id": pid_a, "days_until_stockout": 7, "recommended_restock_qty": 55},
         ])
-        return _FakeOpenRouterResponse({"choices": [{"message": {"content": content}}]})
+        return _FakeLlmResponse({"choices": [{"message": {"content": content}}]})
 
     monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
 
@@ -375,12 +375,12 @@ def test_openrouter_success_refines_by_product_id(api, admin_api, db_connection,
     assert by_pid[pid_b]["recommended_restock_qty"] == 99
     assert by_pid[pid_b]["ai_refined"] is True
     out = capsys.readouterr().out
-    assert "openrouter: refining 2 items (model=test-model)" in out
-    assert "openrouter: ok, refined 2" in out
+    assert "llm: refining 2 items (model=test-model)" in out
+    assert "llm: ok, refined 2" in out
 
 
-def test_openrouter_failure_falls_back_to_regression(api, admin_api, db_connection, monkeypatch, capsys):
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+def test_llm_failure_falls_back_to_regression(api, admin_api, db_connection, monkeypatch, capsys):
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-key")
 
     def fake_urlopen(req, timeout=None):
         raise RuntimeError("boom")
@@ -396,12 +396,12 @@ def test_openrouter_failure_falls_back_to_regression(api, admin_api, db_connecti
     assert f["ai_refined"] is False
     assert f["days_until_stockout"] == 5  # regression value untouched
     assert f["recommended_restock_qty"] == 15
-    assert "openrouter: failed: boom — regression fallback" in capsys.readouterr().out
+    assert "llm: failed: boom — regression fallback" in capsys.readouterr().out
 
 
-def test_openrouter_success_with_markdown_fence(api, admin_api, db_connection, monkeypatch, capsys):
+def test_llm_success_with_markdown_fence(api, admin_api, db_connection, monkeypatch, capsys):
     # free-pool reasoning models may wrap the JSON in a ```json fence
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-key")
     _brand_id, product_id = _insert_brand_product(db_connection, product_name="Fenced", qty=10)
     _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
 
@@ -413,7 +413,7 @@ def test_openrouter_success_with_markdown_fence(api, admin_api, db_connection, m
             ])
             + "\n```"
         )
-        return _FakeOpenRouterResponse({"choices": [{"message": {"content": content}}]})
+        return _FakeLlmResponse({"choices": [{"message": {"content": content}}]})
 
     monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
 
@@ -423,12 +423,12 @@ def test_openrouter_success_with_markdown_fence(api, admin_api, db_connection, m
     f = response.json()["forecasts"][0]
     assert f["ai_refined"] is True
     assert f["days_until_stockout"] == 4
-    assert "openrouter: ok, refined 1" in capsys.readouterr().out
+    assert "llm: ok, refined 1" in capsys.readouterr().out
 
 
-def test_openrouter_success_with_prose_preamble(api, admin_api, db_connection, monkeypatch, capsys):
+def test_llm_success_with_prose_preamble(api, admin_api, db_connection, monkeypatch, capsys):
     # ...or prepend CoT prose before the JSON array
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-key")
     _brand_id, product_id = _insert_brand_product(db_connection, product_name="Chatty", qty=10)
     _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
 
@@ -437,7 +437,7 @@ def test_openrouter_success_with_prose_preamble(api, admin_api, db_connection, m
             {"product_id": product_id, "days_until_stockout": 6, "recommended_restock_qty": 21},
         ])
         content = f"Sure! Reviewing the trends first.\nHere is the refined array: {payload}"
-        return _FakeOpenRouterResponse({"choices": [{"message": {"content": content}}]})
+        return _FakeLlmResponse({"choices": [{"message": {"content": content}}]})
 
     monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
 
@@ -447,16 +447,16 @@ def test_openrouter_success_with_prose_preamble(api, admin_api, db_connection, m
     f = response.json()["forecasts"][0]
     assert f["ai_refined"] is True
     assert f["days_until_stockout"] == 6
-    assert "openrouter: ok, refined 1" in capsys.readouterr().out
+    assert "llm: ok, refined 1" in capsys.readouterr().out
 
 
-def test_openrouter_garbage_content_falls_back(api, admin_api, db_connection, monkeypatch, capsys):
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+def test_llm_garbage_content_falls_back(api, admin_api, db_connection, monkeypatch, capsys):
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-key")
     _brand_id, product_id = _insert_brand_product(db_connection, product_name="Garbage", qty=10)
     _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
 
     def fake_urlopen(req, timeout=None):
-        return _FakeOpenRouterResponse({"choices": [{"message": {"content": "no json here"}}]})
+        return _FakeLlmResponse({"choices": [{"message": {"content": "no json here"}}]})
 
     monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
 
@@ -467,16 +467,16 @@ def test_openrouter_garbage_content_falls_back(api, admin_api, db_connection, mo
     assert f["ai_refined"] is False
     assert f["days_until_stockout"] == 5  # regression value kept
     assert (
-        "openrouter: failed: response was not a JSON array — regression fallback"
+        "llm: failed: response was not a JSON array — regression fallback"
         in capsys.readouterr().out
     )
 
 
-# ------------------------------------------------------------------ OpenRouter 429 cooldown (P13)
+# ------------------------------------------------------------------ LLM 429 cooldown (P13)
 
 
-def test_openrouter_429_sets_cooldown_and_falls_back(api, admin_api, db_connection, monkeypatch, capsys):
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+def test_llm_429_sets_cooldown_and_falls_back(api, admin_api, db_connection, monkeypatch, capsys):
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-key")
     _brand_id, product_id = _insert_brand_product(db_connection, product_name="Limited", qty=10)
     _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
 
@@ -495,9 +495,9 @@ def test_openrouter_429_sets_cooldown_and_falls_back(api, admin_api, db_connecti
     assert f["ai_refined"] is False
     assert f["days_until_stockout"] == 5  # regression value kept
     assert len(calls) == 1
-    assert "openrouter: rate-limited (429), cooling down" in capsys.readouterr().out
+    assert "llm: rate-limited (429), cooling down" in capsys.readouterr().out
 
-    # Inside the cooldown a fresh recompute must not touch OpenRouter again.
+    # Inside the cooldown a fresh recompute must not touch the LLM again.
     monkeypatch.setattr(main_module, "FORECAST_CACHE_TTL_SECONDS", -1)  # force recompute
     second = admin_api.get("/api/forecast")
 
@@ -505,22 +505,22 @@ def test_openrouter_429_sets_cooldown_and_falls_back(api, admin_api, db_connecti
     assert second.json()["forecasts"][0]["ai_refined"] is False
     assert len(calls) == 1  # no second call inside the cooldown window
     out = capsys.readouterr().out
-    assert "openrouter: cooldown active after 429, skipping refine" in out
+    assert "llm: cooldown active after 429, skipping refine" in out
 
 
-def test_openrouter_cooldown_expires_and_refine_resumes(api, admin_api, db_connection, monkeypatch, capsys):
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+def test_llm_cooldown_expires_and_refine_resumes(api, admin_api, db_connection, monkeypatch, capsys):
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-key")
     _brand_id, product_id = _insert_brand_product(db_connection, product_name="Resumed", qty=10)
     _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
 
     # Cooldown already expired: refine must be attempted again.
-    main_module._openrouter_state["cooldown_until"] = time.monotonic() - 1
+    main_module._llm_state["cooldown_until"] = time.monotonic() - 1
 
     def fake_urlopen(req, timeout=None):
         content = json.dumps([
             {"product_id": product_id, "days_until_stockout": 4, "recommended_restock_qty": 21},
         ])
-        return _FakeOpenRouterResponse({"choices": [{"message": {"content": content}}]})
+        return _FakeLlmResponse({"choices": [{"message": {"content": content}}]})
 
     monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
 
@@ -531,7 +531,55 @@ def test_openrouter_cooldown_expires_and_refine_resumes(api, admin_api, db_conne
     assert f["ai_refined"] is True
     assert f["days_until_stockout"] == 4
     assert f["recommended_restock_qty"] == 21
-    assert "openrouter: ok, refined 1" in capsys.readouterr().out
+    assert "llm: ok, refined 1" in capsys.readouterr().out
+
+
+def test_llm_content_none_falls_back(api, admin_api, db_connection, monkeypatch, capsys):
+    # Some models answer with an explicit content:null; before the guard
+    # this crashed _extract_json_array on None.strip().
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-key")
+    _brand_id, product_id = _insert_brand_product(db_connection, product_name="Nullish", qty=10)
+    _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
+
+    def fake_urlopen(req, timeout=None):
+        return _FakeLlmResponse({"choices": [{"message": {"content": None}}]})
+
+    monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
+
+    response = admin_api.get("/api/forecast")
+
+    assert response.status_code == 200
+    f = response.json()["forecasts"][0]
+    assert f["ai_refined"] is False
+    assert f["days_until_stockout"] == 5  # regression value kept
+    assert "llm: failed: response was not a JSON array — regression fallback" in capsys.readouterr().out
+
+
+def test_llm_stalled_connection_is_bounded(api, admin_api, db_connection, monkeypatch, capsys):
+    # F1: a stalled DNS/connect can hang urlopen far beyond its timeout;
+    # the daemon-thread join bound must return regression values instead.
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-key")
+    monkeypatch.setattr(main_module, "LLM_TIMEOUT", 1)
+    monkeypatch.setattr(main_module, "LLM_GRACE_SECONDS", 1)
+    _brand_id, product_id = _insert_brand_product(db_connection, product_name="Stalled", qty=10)
+    _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
+
+    def fake_urlopen(req, timeout=None):
+        time.sleep(30)  # simulate a stalled connection beyond every bound
+        raise AssertionError("should have been abandoned")
+
+    monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
+
+    started = time.monotonic()
+    response = admin_api.get("/api/forecast")
+    elapsed = time.monotonic() - started
+
+    assert response.status_code == 200
+    f = response.json()["forecasts"][0]
+    assert f["ai_refined"] is False
+    assert f["days_until_stockout"] == 5  # regression value kept
+    assert elapsed < 10  # bounded by LLM_TIMEOUT + grace, not the 30s stall
+    assert "llm: timed out after" in capsys.readouterr().out
 
 
 # ------------------------------------------------------------------ /api/recommendations
