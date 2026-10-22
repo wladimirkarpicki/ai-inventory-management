@@ -12,6 +12,7 @@ import io
 import json
 import os
 import time
+import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -978,8 +979,14 @@ ANALYTICS_LEAD_DAYS = 14
 DEFAULT_PAGE_SIZE = 10
 MAX_PAGE_SIZE = 100
 OPENROUTER_TIMEOUT = 15
+OPENROUTER_COOLDOWN_SECONDS = 5 * 60
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+# Circuit breaker (P13): after a 429 the refine step sleeps for the cooldown
+# window and every forecast served meanwhile is pure regression — no retry
+# storm against the free pool. In-process state, reset by tests.
+_openrouter_state: dict = {"cooldown_until": 0.0}
 
 
 def _linreg_slope(xs: list, ys: list) -> float:
@@ -1125,6 +1132,11 @@ def _refine_forecasts_with_openrouter(forecasts: list) -> None:
         print("openrouter: skip, OPENROUTER_API_KEY not set")
         return
 
+    # P13: inside the 429 cooldown window skip OpenRouter entirely.
+    if time.monotonic() < _openrouter_state["cooldown_until"]:
+        print("openrouter: cooldown active after 429, skipping refine — regression fallback")
+        return
+
     model = os.getenv("OPENROUTER_MODEL") or "openrouter/free"
     payload = [
         {
@@ -1193,6 +1205,15 @@ def _refine_forecasts_with_openrouter(forecasts: list) -> None:
             f["ai_refined"] = True
             matched += 1
         print(f"openrouter: ok, refined {matched}")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 429:
+            _openrouter_state["cooldown_until"] = time.monotonic() + OPENROUTER_COOLDOWN_SECONDS
+            print(
+                f"openrouter: rate-limited (429), cooling down "
+                f"{OPENROUTER_COOLDOWN_SECONDS}s — regression fallback"
+            )
+        else:
+            print(f"openrouter: failed: {exc} — regression fallback")
     except Exception as exc:
         print(f"openrouter: failed: {exc} — regression fallback")
 
