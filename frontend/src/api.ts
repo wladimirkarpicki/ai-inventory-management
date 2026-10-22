@@ -156,6 +156,19 @@ export interface MovementPage {
   total: number
 }
 
+// ------------------------------------------------------------------ daily movements (P14)
+
+export interface DailyMovement {
+  date: string
+  in_qty: number
+  out_qty: number
+}
+
+export interface DailyMovementList {
+  items: DailyMovement[]
+  days: number
+}
+
 // ------------------------------------------------------------------ csv import (P9)
 
 export interface ImportRowIssue {
