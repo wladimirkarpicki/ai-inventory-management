@@ -2,13 +2,16 @@ import { useEffect, useState } from "react"
 import {
   BanknoteIcon,
   BoxesIcon,
+  DownloadIcon,
   PackageIcon,
   TagsIcon,
   TriangleAlertIcon,
 } from "lucide-react"
+import { toast } from "sonner"
 
 import {
   api,
+  getToken,
   type ForecastPage,
   type MovementPage,
   type RecommendationPage,
@@ -27,6 +30,31 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableHeader, TableRow, TableCell, TableBody } from "@/components/ui/table"
 
 const PAGE_LIMIT = 10
+
+async function downloadMovementsCsv() {
+  const token = getToken()
+
+  try {
+    const response = await fetch("/api/export/movements.csv", {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+
+    if (!response.ok) {
+      toast.error(`Export failed (${response.status}).`)
+      return
+    }
+
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = "movements.csv"
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    toast.error("Export failed.")
+  }
+}
 
 function money(value: number): string {
   return value.toLocaleString("en-US", {
@@ -422,7 +450,17 @@ export function DashboardPage() {
       {/* Recent movements section */}
       {movementPage !== null ? (
         <div className="mt-6">
-          <h3 className="font-medium text-sm mb-3">Recent movements</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-medium text-sm">Recent movements</h3>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void downloadMovementsCsv()}
+            >
+              <DownloadIcon />
+              Export CSV
+            </Button>
+          </div>
           {movementPage.items.length > 0 ? (
             <>
               <Table>
