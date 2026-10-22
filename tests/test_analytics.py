@@ -110,6 +110,39 @@ def test_movements_pagination_limit_offset(api, admin_api, db_connection):
     assert admin_api.get("/api/movements", params={"limit": 101}).status_code == 422
 
 
+def test_movements_export_requires_auth(api):
+    assert api.get("/api/export/movements.csv").status_code == 401
+
+
+def test_movements_export_csv(api, admin_api, db_connection):
+    _brand_id, _product_id = _insert_brand_product(db_connection, product_name="Exp", qty=10)
+    _insert_movements(db_connection, _product_id, qty_per_day=-2, days=3)
+
+    response = admin_api.get("/api/export/movements.csv")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment; filename=movements.csv" in response.headers["content-disposition"]
+
+    lines = response.text.strip().splitlines()
+    assert lines[0] == "ID,Product ID,Product,Direction,Qty,Reason,Timestamp"
+    assert len(lines) == 4  # header + 3 movements
+    # newest first, same ordering as the movements API
+    timestamps = [line.rsplit(",", 1)[1] for line in lines[1:]]
+    assert timestamps == sorted(timestamps, reverse=True)
+    assert all(",Exp,out,-2,sale," in line for line in lines[1:])
+
+
+def test_movements_export_empty_history(api, admin_api, db_connection):
+    _insert_brand_product(db_connection, product_name="Quiet", qty=10)
+
+    response = admin_api.get("/api/export/movements.csv")
+
+    assert response.status_code == 200
+    lines = response.text.strip().splitlines()
+    assert lines == ["ID,Product ID,Product,Direction,Qty,Reason,Timestamp"]
+
+
 # ------------------------------------------------------------------ /api/forecast
 
 
