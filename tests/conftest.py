@@ -130,6 +130,22 @@ def _reset_forecast_cache():
     main_module._invalidate_forecast_cache()
 
 
+@pytest.fixture(autouse=True)
+def _reset_openrouter_cooldown():
+    """
+    The 429 cooldown (P13) is in-process state; a cooldown armed in one
+    test must not silence refinement in the next one.
+    """
+
+    import main as main_module
+
+    main_module._openrouter_state["cooldown_until"] = 0.0
+
+    yield
+
+    main_module._openrouter_state["cooldown_until"] = 0.0
+
+
 @pytest.fixture()
 def db_connection():
     """
