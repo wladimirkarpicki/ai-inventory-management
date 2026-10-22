@@ -571,7 +571,7 @@ def list_products(
     total = db.execute(f"SELECT COUNT(*) {base}", (search, like, like)).fetchone()[0]  # type: ignore[index]  # single-row query by construction
 
     rows = db.execute(
-        f"SELECT p.id, p.brand_id, b.name, p.name, p.price, p.quantity "
+        f"SELECT p.id, p.brand_id, b.name, p.name, p.price, p.quantity, p.reorder_point, p.lead_time_days "
         f"{base} ORDER BY {order_by} LIMIT %s OFFSET %s",
         (search, like, like, PAGE_SIZE, offset),
     ).fetchall()
@@ -585,6 +585,8 @@ def list_products(
                 "name": r[3],
                 "price": float(r[4]),
                 "quantity": r[5],
+                "reorder_point": r[6],
+                "lead_time_days": r[7],
             }
             for r in rows
         ],
@@ -627,9 +629,9 @@ def create_product(
         raise HTTPException(status_code=400, detail="Selected brand does not exist.")
 
     row = db.execute(
-        "INSERT INTO products (brand_id, name, price, quantity) "
-        "VALUES (%s, %s, %s, %s) RETURNING id",
-        (data.brand_id, data.name, Decimal(str(data.price)), data.quantity),
+        "INSERT INTO products (brand_id, name, price, quantity, reorder_point, lead_time_days) "
+        "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+        (data.brand_id, data.name, Decimal(str(data.price)), data.quantity, data.reorder_point, data.lead_time_days),
     ).fetchone()
     product_id = row[0]  # type: ignore[index]  # single-row query by construction
 
@@ -647,6 +649,8 @@ def create_product(
         "name": data.name,
         "price": data.price,
         "quantity": data.quantity,
+        "reorder_point": data.reorder_point,
+        "lead_time_days": data.lead_time_days,
     }
 
 
@@ -670,12 +674,14 @@ def update_product(
         raise HTTPException(status_code=400, detail="Selected brand does not exist.")
 
     db.execute(
-        "UPDATE products SET brand_id = %s, name = %s, price = %s, quantity = %s WHERE id = %s",
+        "UPDATE products SET brand_id = %s, name = %s, price = %s, quantity = %s, reorder_point = %s, lead_time_days = %s WHERE id = %s",
         (
             data.brand_id,
             data.name,
             Decimal(str(data.price)),
             data.quantity,
+            data.reorder_point,
+            data.lead_time_days,
             product_id,
         ),
     )
@@ -695,6 +701,8 @@ def update_product(
         "name": data.name,
         "price": data.price,
         "quantity": data.quantity,
+        "reorder_point": data.reorder_point,
+        "lead_time_days": data.lead_time_days,
     }
 
 
