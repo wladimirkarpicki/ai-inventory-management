@@ -5,6 +5,8 @@ OpenRouter refinement behaviour, and the low_stock_alerts dashboard field.
 """
 
 import json
+import time
+import urllib.error
 from datetime import datetime, timedelta
 
 import pytest
@@ -429,6 +431,68 @@ def test_openrouter_garbage_content_falls_back(api, admin_api, db_connection, mo
         "openrouter: failed: response was not a JSON array — regression fallback"
         in capsys.readouterr().out
     )
+
+
+# ------------------------------------------------------------------ OpenRouter 429 cooldown (P13)
+
+
+def test_openrouter_429_sets_cooldown_and_falls_back(api, admin_api, db_connection, monkeypatch, capsys):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    _brand_id, product_id = _insert_brand_product(db_connection, product_name="Limited", qty=10)
+    _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
+
+    calls: list[int] = []
+
+    def fake_urlopen(req, timeout=None):
+        calls.append(1)
+        raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", None, None)
+
+    monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
+
+    response = admin_api.get("/api/forecast")
+
+    assert response.status_code == 200
+    f = response.json()["forecasts"][0]
+    assert f["ai_refined"] is False
+    assert f["days_until_stockout"] == 5  # regression value kept
+    assert len(calls) == 1
+    assert "openrouter: rate-limited (429), cooling down" in capsys.readouterr().out
+
+    # Inside the cooldown a fresh recompute must not touch OpenRouter again.
+    monkeypatch.setattr(main_module, "FORECAST_CACHE_TTL_SECONDS", -1)  # force recompute
+    second = admin_api.get("/api/forecast")
+
+    assert second.status_code == 200
+    assert second.json()["forecasts"][0]["ai_refined"] is False
+    assert len(calls) == 1  # no second call inside the cooldown window
+    out = capsys.readouterr().out
+    assert "openrouter: cooldown active after 429, skipping refine" in out
+
+
+def test_openrouter_cooldown_expires_and_refine_resumes(api, admin_api, db_connection, monkeypatch, capsys):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    _brand_id, product_id = _insert_brand_product(db_connection, product_name="Resumed", qty=10)
+    _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
+
+    # Cooldown already expired: refine must be attempted again.
+    main_module._openrouter_state["cooldown_until"] = time.monotonic() - 1
+
+    def fake_urlopen(req, timeout=None):
+        content = json.dumps([
+            {"product_id": product_id, "days_until_stockout": 4, "recommended_restock_qty": 21},
+        ])
+        return _FakeOpenRouterResponse({"choices": [{"message": {"content": content}}]})
+
+    monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
+
+    response = admin_api.get("/api/forecast")
+
+    assert response.status_code == 200
+    f = response.json()["forecasts"][0]
+    assert f["ai_refined"] is True
+    assert f["days_until_stockout"] == 4
+    assert f["recommended_restock_qty"] == 21
+    assert "openrouter: ok, refined 1" in capsys.readouterr().out
 
 
 # ------------------------------------------------------------------ /api/recommendations
