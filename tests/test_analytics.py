@@ -158,6 +158,55 @@ def test_forecast_linear_regression_on_movements(api, admin_api, db_connection):
     assert f["ai_refined"] is False  # conftest disables OpenRouter
 
 
+# ------------------------------------------------------------------ forecast cache (P11)
+
+
+def test_forecast_cache_hit_skips_recompute(api, admin_api, db_connection):
+    _brand_id, _pid = _insert_brand_product(db_connection, product_name="Cached", qty=10)
+
+    first = admin_api.get("/api/forecast")
+    assert first.status_code == 200
+    assert first.json()["total"] == 1
+
+    # A product inserted after the first call is invisible inside the TTL:
+    # the second response must come from the cache, not a fresh DB read.
+    _insert_brand_product(db_connection, brand_name="LateCo", product_name="Late", qty=5)
+
+    second = admin_api.get("/api/forecast")
+    assert second.status_code == 200
+    assert second.json()["total"] == 1
+    assert second.json()["forecasts"][0]["name"] == "Cached"
+
+
+def test_forecast_cache_invalidated_on_product_write(api, admin_api, db_connection):
+    _brand_id, _pid = _insert_brand_product(db_connection, product_name="First", qty=10)
+    assert admin_api.get("/api/forecast").json()["total"] == 1
+
+    brand_id = admin_api.post("/api/brands", json={"name": "ApiCo"}).json()["id"]
+    created = admin_api.post(
+        "/api/products",
+        json={"brand_id": brand_id, "name": "Second", "price": 1.5, "quantity": 4},
+    )
+    assert created.status_code == 200
+
+    body = admin_api.get("/api/forecast").json()
+    assert body["total"] == 2  # cache was dropped by the write
+
+
+def test_forecast_cache_expires_after_ttl(api, admin_api, db_connection, monkeypatch):
+    _brand_id, _pid = _insert_brand_product(db_connection, product_name="Old", qty=10)
+    assert admin_api.get("/api/forecast").json()["total"] == 1
+
+    _insert_brand_product(db_connection, brand_name="FreshCo", product_name="Fresh", qty=5)
+
+    # Age the cache past its TTL without waiting real minutes.
+    monkeypatch.setattr(main_module, "FORECAST_CACHE_TTL_SECONDS", -1)
+
+    body = admin_api.get("/api/forecast").json()
+    assert body["total"] == 2  # recompute after expiry
+    assert {f["name"] for f in body["forecasts"]} == {"Old", "Fresh"}
+
+
 def test_forecast_stable_stock_has_no_stockout(api, admin_api, db_connection):
     _brand_id, product_id = _insert_brand_product(db_connection, product_name="Stable", qty=10)
     _insert_movements(db_connection, product_id, qty_per_day=5, days=5, reason="restock")

@@ -114,6 +114,22 @@ def _reset_failed_logins():
     main_module._failed_logins.clear()
 
 
+@pytest.fixture(autouse=True)
+def _reset_forecast_cache():
+    """
+    The forecast cache (P11) is in-process state; without this, a list
+    computed in one test would leak into the next one over a truncated DB.
+    """
+
+    import main as main_module
+
+    main_module._invalidate_forecast_cache()
+
+    yield
+
+    main_module._invalidate_forecast_cache()
+
+
 @pytest.fixture()
 def db_connection():
     """
