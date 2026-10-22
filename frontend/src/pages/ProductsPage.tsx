@@ -1,15 +1,17 @@
-import { FormEvent, useCallback, useEffect, useState } from "react"
+import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react"
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  DownloadIcon,
   PencilIcon,
   PlusIcon,
   SearchIcon,
   Trash2Icon,
+  UploadIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 
-import { api, type Brand, type Product, type ProductList } from "@/api"
+import { api, type Brand, type ImportResult, type Product, type ProductList } from "@/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -57,6 +59,7 @@ interface FormState {
   name: string
   price: string
   quantity: string
+  reason: string
 }
 
 const EMPTY_FORM: FormState = {
@@ -65,6 +68,7 @@ const EMPTY_FORM: FormState = {
   name: "",
   price: "",
   quantity: "",
+  reason: "manual_edit",
 }
 
 function money(value: number): string {
@@ -86,6 +90,10 @@ export function ProductsPage() {
   const [saving, setSaving] = useState(false)
   const [toDelete, setToDelete] = useState<Product | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importResult, setImportResult] = useState<ImportResult | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -123,6 +131,7 @@ export function ProductsPage() {
       name: product.name,
       price: String(product.price),
       quantity: String(product.quantity),
+      reason: "manual_edit",
     })
     setFormOpen(true)
   }
@@ -154,7 +163,10 @@ export function ProductsPage() {
         await api("/api/products", { method: "POST", body })
         toast.success("Product added.")
       } else {
-        await api(`/api/products/${form.id}`, { method: "PATCH", body })
+        await api(`/api/products/${form.id}`, {
+          method: "PATCH",
+          body: { ...body, reason: form.reason },
+        })
         toast.success("Product updated.")
       }
       closeForm()
@@ -182,6 +194,39 @@ export function ProductsPage() {
     }
   }
 
+  async function handleImportFile(event: ChangeEvent<HTMLInputElement>) {
+    const selected = event.target.files?.[0]
+    event.target.value = "" // allow picking the same file again
+    if (!selected) return
+
+    setImporting(true)
+    try {
+      const form = new FormData()
+      form.append("file", selected)
+      const result = await api<ImportResult>("/api/products/import", {
+        method: "POST",
+        body: form,
+      })
+      setImportResult(result)
+      setImportOpen(true)
+      await load()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Import failed.")
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  function downloadTemplate() {
+    const content = "name,brand,price,quantity\nWidget,Acme,9.99,10\n"
+    const url = URL.createObjectURL(new Blob([content], { type: "text/csv" }))
+    const link = document.createElement("a")
+    link.href = url
+    link.download = "products-template.csv"
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -191,10 +236,24 @@ export function ProductsPage() {
             Manage the products in your inventory.
           </p>
         </div>
-        <Button onClick={startAdd}>
-          <PlusIcon />
-          Add product
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+          >
+            <UploadIcon />
+            {importing ? "Importing…" : "Import CSV"}
+          </Button>
+          <Button variant="outline" onClick={downloadTemplate}>
+            <DownloadIcon />
+            CSV template
+          </Button>
+          <Button onClick={startAdd}>
+            <PlusIcon />
+            Add product
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -435,6 +494,28 @@ export function ProductsPage() {
               </div>
             </div>
 
+            {form.id !== null && (
+              <div className="grid gap-2">
+                <Label htmlFor="reason">Reason for change</Label>
+                <Select
+                  value={form.reason}
+                  onValueChange={(value) =>
+                    setForm((current) => ({ ...current, reason: value }))
+                  }
+                >
+                  <SelectTrigger id="reason" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="manual_edit">Correction</SelectItem>
+                    <SelectItem value="restock">Restock</SelectItem>
+                    <SelectItem value="sale">Sale</SelectItem>
+                    <SelectItem value="write_off">Write-off</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <DialogFooter>
               <Button
                 type="button"
@@ -449,6 +530,59 @@ export function ProductsPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv"
+        className="hidden"
+        onChange={(event) => void handleImportFile(event)}
+      />
+
+      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Import results</DialogTitle>
+            <DialogDescription>
+              Imported: {importResult?.imported ?? 0} · Skipped:{" "}
+              {importResult?.skipped.length ?? 0} · Errors:{" "}
+              {importResult?.errors.length ?? 0}
+            </DialogDescription>
+          </DialogHeader>
+          {importResult &&
+            (importResult.skipped.length > 0 || importResult.errors.length > 0) && (
+              <div className="max-h-64 space-y-3 overflow-y-auto text-sm">
+                {importResult.skipped.length > 0 && (
+                  <div>
+                    <p className="font-medium">Skipped rows</p>
+                    <ul className="list-disc pl-5 text-muted-foreground">
+                      {importResult.skipped.map((item) => (
+                        <li key={`skip-${item.row}`}>
+                          Row {item.row}: {item.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {importResult.errors.length > 0 && (
+                  <div>
+                    <p className="font-medium">Error rows</p>
+                    <ul className="list-disc pl-5 text-muted-foreground">
+                      {importResult.errors.map((item) => (
+                        <li key={`error-${item.row}`}>
+                          Row {item.row}: {item.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          <DialogFooter>
+            <Button onClick={() => setImportOpen(false)}>Close</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

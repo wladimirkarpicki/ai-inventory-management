@@ -68,9 +68,20 @@ def _clean_tables():
 
     conn = psycopg.connect(TEST_CONN_STRING)
     cur = conn.cursor()
-    cur.execute("TRUNCATE users, products, brands RESTART IDENTITY CASCADE")
+    cur.execute("TRUNCATE users, products, brands, stock_movements RESTART IDENTITY CASCADE")
     conn.commit()
     conn.close()
+
+
+@pytest.fixture(autouse=True)
+def _disable_openrouter(monkeypatch):
+    """
+    The forecast endpoint is best-effort OpenRouter; keep tests deterministic
+    by skipping the live LLM call (regression path stays under test).
+    """
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    monkeypatch.setenv("OPENROUTER_MODEL", "")
 
 
 @pytest.fixture(scope="session", autouse=True)

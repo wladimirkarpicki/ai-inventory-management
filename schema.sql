@@ -24,3 +24,12 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(20) NOT NULL DEFAULT 'user'
 );
+
+CREATE TABLE IF NOT EXISTS stock_movements (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER NOT NULL REFERENCES products (id),
+    in_out VARCHAR(10) NOT NULL CHECK (in_out IN ('in', 'out')),
+    qty INTEGER NOT NULL DEFAULT 0,
+    reason TEXT NOT NULL DEFAULT '',
+    timestamp TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);

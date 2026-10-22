@@ -9,17 +9,19 @@ working immediately.
 
 import csv
 import io
+import json
 import os
 import time
+import urllib.request
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import jwt
 import psycopg
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -46,6 +48,7 @@ if len(SECRET_KEY) < 32:
 TOKEN_TTL_HOURS = 12
 PAGE_SIZE = 10
 LOW_STOCK_THRESHOLD = 5
+LOW_STOCK_ALERTS_LIMIT = 10
 LOGIN_MAX_ATTEMPTS = 5
 LOGIN_LOCKOUT_SECONDS = 15 * 60
 
@@ -133,6 +136,7 @@ class ProductIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     price: float = Field(gt=0)
     quantity: int = Field(ge=0)
+    reason: str | None = Field(default=None, max_length=200)
 
 
 # ---------------------------------------------------------------- helpers
@@ -588,6 +592,27 @@ def list_products(
     }
 
 
+def _record_stock_movement(
+    conn: psycopg.Connection,
+    product_id: int,
+    delta: int,
+    reason: str,
+) -> None:
+    """
+    Append one stock_movements row for a real quantity change. Runs inside
+    the caller's transaction: a failure before the commit rolls the whole
+    product edit back with it (atomicity). qty keeps the sign of the delta
+    (negative for 'out') — the signed-delta convention of stock_movements
+    that the analytics pipeline sums directly.
+    """
+
+    conn.execute(
+        "INSERT INTO stock_movements (product_id, in_out, qty, reason) "
+        "VALUES (%s, %s, %s, %s)",
+        (product_id, "in" if delta > 0 else "out", delta, reason),
+    )
+
+
 @app.post("/api/products")
 def create_product(
     data: ProductIn,
@@ -604,10 +629,17 @@ def create_product(
         "VALUES (%s, %s, %s, %s) RETURNING id",
         (data.brand_id, data.name, Decimal(str(data.price)), data.quantity),
     ).fetchone()
+    product_id = row[0]  # type: ignore[index]  # single-row query by construction
+
+    # The initial stock level is itself a movement; a zero-qty creation
+    # has nothing to record.
+    if data.quantity > 0:
+        _record_stock_movement(db, product_id, data.quantity, "initial")
+
     db.commit()
 
     return {
-        "id": row[0],  # type: ignore[index]  # single-row query by construction
+        "id": product_id,
         "brand_id": data.brand_id,
         "brand": brand[0],
         "name": data.name,
@@ -623,7 +655,11 @@ def update_product(
     user: dict = Depends(get_current_user),
     db: psycopg.Connection = Depends(get_db),
 ) -> dict:
-    if db.execute("SELECT 1 FROM products WHERE id = %s", (product_id,)).fetchone() is None:
+    current = db.execute(
+        "SELECT quantity FROM products WHERE id = %s", (product_id,)
+    ).fetchone()
+
+    if current is None:
         raise HTTPException(status_code=404, detail="Product not found.")
 
     brand = db.execute("SELECT name FROM brands WHERE id = %s", (data.brand_id,)).fetchone()
@@ -641,6 +677,13 @@ def update_product(
             product_id,
         ),
     )
+
+    # Record the quantity change in the same transaction; no change in
+    # quantity means no movement row.
+    delta = data.quantity - (current[0] or 0)
+    if delta != 0:
+        _record_stock_movement(db, product_id, delta, data.reason or "manual_edit")
+
     db.commit()
 
     return {
@@ -662,6 +705,9 @@ def delete_product(
     if db.execute("SELECT 1 FROM products WHERE id = %s", (product_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Product not found.")
 
+    # The movement history belongs to the product: the FK would block the
+    # delete, so drop the rows in the same transaction (atomic).
+    db.execute("DELETE FROM stock_movements WHERE product_id = %s", (product_id,))
     db.execute("DELETE FROM products WHERE id = %s", (product_id,))
     db.commit()
 
@@ -691,6 +737,12 @@ def dashboard_stats(
         (LOW_STOCK_THRESHOLD,),
     ).fetchone()[0]
 
+    low_stock_alerts = db.execute(  # type: ignore[index]  # single-row query by construction
+        "SELECT id, name, quantity FROM products WHERE quantity < %s "
+        "ORDER BY quantity ASC NULLS LAST, name ASC LIMIT %s",
+        (LOW_STOCK_THRESHOLD, LOW_STOCK_ALERTS_LIMIT),
+    ).fetchall()
+
     return {
         "products": product_count,
         "brands": brand_count,
@@ -698,7 +750,141 @@ def dashboard_stats(
         "inventory_value": float(total_value),
         "low_stock": low_stock,
         "low_stock_threshold": LOW_STOCK_THRESHOLD,
+        "low_stock_alerts": [
+            {"product_id": r[0], "name": r[1], "remaining_qty": r[2] or 0}
+            for r in low_stock_alerts
+        ],
     }
+
+
+# ---------------------------------------------------------------- csv import (P9)
+
+IMPORT_MAX_BYTES = 1_000_000
+IMPORT_MAX_ROWS = 1000
+IMPORT_COLUMNS = ("name", "brand", "price", "quantity")
+
+
+@app.post("/api/products/import")
+def import_products_csv(
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+) -> dict:
+    """
+    Bulk-create products from a CSV file (utf-8, BOM tolerated). Columns
+    are matched by header name; unknown brands and broken rows land in
+    `errors`, existing (brand, name) pairs in `skipped`. Data rows are
+    numbered from 1 after the header. Initial stock is recorded as an
+    'import' movement (P8) — everything in one transaction.
+    """
+
+    if not (file.filename or "").lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only .csv files are accepted.")
+
+    payload = file.file.read(IMPORT_MAX_BYTES + 1)
+    if len(payload) > IMPORT_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="File exceeds the 1 MB limit.")
+
+    rows = list(csv.reader(io.StringIO(payload.decode("utf-8-sig", errors="replace"))))
+    if not rows:
+        raise HTTPException(status_code=400, detail="File is empty.")
+
+    header = [cell.strip().lower() for cell in rows[0]]
+    missing = [column for column in IMPORT_COLUMNS if column not in header]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required column(s): {', '.join(missing)}.",
+        )
+    column_index = {column: header.index(column) for column in IMPORT_COLUMNS}
+
+    data_rows = [row for row in rows[1:] if any(cell.strip() for cell in row)]
+    if not data_rows:
+        raise HTTPException(status_code=400, detail="File has no data rows.")
+    if len(data_rows) > IMPORT_MAX_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many rows: {len(data_rows)} (max {IMPORT_MAX_ROWS}).",
+        )
+
+    brand_ids: dict[str, int | None] = {}
+
+    def _lookup_brand_id(name: str) -> int | None:
+        key = name.lower()
+        if key not in brand_ids:
+            row = db.execute(
+                "SELECT id FROM brands WHERE lower(name) = %s ORDER BY id LIMIT 1",
+                (key,),
+            ).fetchone()
+            brand_ids[key] = row[0] if row is not None else None  # type: ignore[index]  # single-row query by construction
+        return brand_ids[key]
+
+    existing_pairs = {
+        (brand_id, name.lower())
+        for brand_id, name in db.execute("SELECT brand_id, name FROM products").fetchall()
+    }
+    seen_in_file: set[tuple[int, str]] = set()
+    imported = 0
+    skipped: list[dict] = []
+    errors: list[dict] = []
+    valid_rows: list[tuple[int, int, str, Decimal, int]] = []
+
+    for row_no, row in enumerate(data_rows, start=1):
+        try:
+            name = row[column_index["name"]].strip()
+            brand_name = row[column_index["brand"]].strip()
+        except IndexError:
+            errors.append({"row": row_no, "reason": "missing value(s)"})
+            continue
+
+        try:
+            price = Decimal(row[column_index["price"]].strip())
+        except (IndexError, InvalidOperation):
+            errors.append({"row": row_no, "reason": "invalid price"})
+            continue
+
+        try:
+            quantity = int(row[column_index["quantity"]].strip())
+        except (IndexError, ValueError):
+            errors.append({"row": row_no, "reason": "invalid quantity"})
+            continue
+
+        if not name or len(name) > 200:
+            errors.append({"row": row_no, "reason": "invalid name"})
+            continue
+        if not price.is_finite() or price <= 0:
+            errors.append({"row": row_no, "reason": "invalid price"})
+            continue
+        if quantity < 0:
+            errors.append({"row": row_no, "reason": "invalid quantity"})
+            continue
+
+        brand_id = _lookup_brand_id(brand_name)
+        if brand_id is None:
+            errors.append({"row": row_no, "reason": f"unknown brand: {brand_name}"})
+            continue
+
+        pair = (brand_id, name.lower())
+        if pair in existing_pairs or pair in seen_in_file:
+            skipped.append({"row": row_no, "reason": "duplicate"})
+            continue
+
+        seen_in_file.add(pair)
+        valid_rows.append((row_no, brand_id, name, price, quantity))
+
+    for _row_no, brand_id, name, price, quantity in valid_rows:
+        product_id = db.execute(
+            "INSERT INTO products (brand_id, name, price, quantity) "
+            "VALUES (%s, %s, %s, %s) RETURNING id",
+            (brand_id, name, price, quantity),
+        ).fetchone()[0]  # type: ignore[index]  # single-row query by construction
+        if quantity > 0:
+            _record_stock_movement(db, product_id, quantity, "import")
+        imported += 1
+
+    db.commit()
+
+    return {"imported": imported, "skipped": skipped, "errors": errors}
 
 
 @app.get("/api/export/products.csv")
@@ -726,6 +912,309 @@ def export_products_csv(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=products.csv"},
     )
+
+
+# ---------------------------------------------------------------- analytics (P7 — paginated, batched, OpenRouter fixed)
+
+ANALYTICS_WINDOW_DAYS = 30
+ANALYTICS_LEAD_DAYS = 14
+DEFAULT_PAGE_SIZE = 10
+MAX_PAGE_SIZE = 100
+OPENROUTER_TIMEOUT = 15
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+
+def _linreg_slope(xs: list, ys: list) -> float:
+    n = len(xs)
+    if n < 2:
+        return 0.0
+    sx = sum(xs)
+    sy = sum(ys)
+    sxx = sum(x * x for x in xs)
+    sxy = sum(x * y for x, y in zip(xs, ys))
+    denom = n * sxx - sx * sx
+    if denom == 0:
+        return 0.0
+    return (n * sxy - sx * sy) / denom
+
+
+def _daily_series(movements: list) -> float | None:
+    # movements = [(timestamp, qty_delta)]
+    by_day: dict = {}
+    for ts, qty in movements:
+        d = ts.date() if hasattr(ts, "date") else ts
+        by_day[d] = by_day.get(d, 0) + qty
+    days = sorted(by_day)
+    if len(days) < 2:
+        return None
+    first = days[0]
+    cum = 0
+    xs = []
+    ys = []
+    for d in days:
+        cum += by_day[d]
+        xs.append((d - first).days)
+        ys.append(cum)
+    if len(set(xs)) < 2:
+        return None
+    return _linreg_slope(xs, ys)
+
+
+def _load_movements(db: psycopg.Connection) -> dict[int, list]:
+    rows = db.execute(
+        "SELECT product_id, timestamp, qty FROM stock_movements "
+        "WHERE timestamp >= now() - interval '1 day' * %s ORDER BY timestamp ASC",
+        (ANALYTICS_WINDOW_DAYS,),
+    ).fetchall()
+    series: dict[int, list] = {}
+    for pid, ts, qty in rows:
+        series.setdefault(pid, []).append((ts, qty))
+    return series
+
+
+def _forecast_for_product(movements: list, current_qty: int) -> dict:
+    slope = _daily_series(movements)
+    if slope is None and movements:
+        first_ts = movements[0][0]
+        last_ts = movements[-1][0]
+        span = max(1, (last_ts - first_ts).days if hasattr(last_ts, "days") else 1)
+        total_qty = sum(q for _, q in movements)
+        slope = total_qty / span
+    if slope is None:
+        slope = 0.0
+    daily_rate = slope  # net per day; negative = depletion
+    if daily_rate < 0 and current_qty > 0:
+        days_until = max(1, int(current_qty / abs(daily_rate) + 0.5))
+    else:
+        days_until = None  # no consumption trend
+    # Recommended restock = enough for lead-time + 10% safety, at least to threshold
+    needed = 0
+    if daily_rate < 0:
+        needed = abs(daily_rate) * ANALYTICS_LEAD_DAYS * 1.1
+    target = max(current_qty + needed, LOW_STOCK_THRESHOLD)
+    recommended = max(0, round(target - current_qty))
+    return {
+        "days_until_stockout": days_until,
+        "recommended_restock_qty": recommended,
+        "daily_net_rate": round(daily_rate, 3),
+    }
+
+
+@app.get("/api/movements")
+def movements(
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    total_row = db.execute("SELECT COUNT(*) FROM stock_movements").fetchone()
+    total = total_row[0] if total_row else 0
+    rows = db.execute(
+        "SELECT m.id, m.product_id, p.name, m.in_out, m.qty, m.reason, m.timestamp "
+        "FROM stock_movements m JOIN products p ON p.id = m.product_id "
+        "ORDER BY m.timestamp DESC LIMIT %s OFFSET %s",
+        (limit, offset),
+    ).fetchall()
+    items = [
+        {
+            "movement_id": r[0],
+            "product_id": r[1],
+            "product_name": r[2],
+            "in_out": r[3],
+            "qty_delta": r[4],
+            "reason": r[5] or "",
+            "timestamp": r[6].isoformat() if hasattr(r[6], "isoformat") else str(r[6]),
+        }
+        for r in rows
+    ]
+    return {"items": items, "total": total}
+
+
+def _extract_json_array(content: str) -> str:
+    """
+    Free-pool reasoning models often prepend Chain-of-Thought prose or a
+    markdown fence to the JSON payload. Recover the outermost JSON array
+    tolerantly: strip, drop ``` fences, else slice from the first '[' to
+    the last ']'. Empty string means "no array found".
+    """
+
+    content = content.strip()
+    if content.startswith("```"):
+        first_newline = content.find("\n")
+        content = content[first_newline + 1 :] if first_newline != -1 else ""
+        content = content.strip()
+        if content.endswith("```"):
+            content = content[:-3].strip()
+    if content and not content.startswith("["):
+        start = content.find("[")
+        end = content.rfind("]")
+        content = content[start : end + 1] if start != -1 and end > start else ""
+    return content
+
+
+def _refine_forecasts_with_openrouter(forecasts: list) -> None:
+    """
+    Best-effort OpenRouter refinement. Only the current page (the most
+    urgent slice) is sent, never the full catalog. No key → skip with a
+    log line; any failure → keep the regression numbers (fallback).
+    """
+
+    if not forecasts:
+        return
+
+    api_key = os.getenv("OPENROUTER_API_KEY", "")
+    if not api_key:
+        print("openrouter: skip, OPENROUTER_API_KEY not set")
+        return
+
+    model = os.getenv("OPENROUTER_MODEL") or "openrouter/free"
+    payload = [
+        {
+            "product_id": f["product_id"],
+            "name": f["name"],
+            "current_qty": f["current_qty"],
+            "days_until_stockout": f["days_until_stockout"],
+            "recommended_restock_qty": f["recommended_restock_qty"],
+        }
+        for f in forecasts
+    ]
+    print(f"openrouter: refining {len(payload)} items (model={model})")
+
+    try:
+        body = json.dumps({
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an inventory forecasting assistant. Given a JSON "
+                        "array of regression-based inventory forecasts (key fields: "
+                        "product_id, name, current_qty, days_until_stockout, "
+                        "recommended_restock_qty), refine predictions when sensible "
+                        "and output ONLY the same array with updated values and "
+                        "ai_refined=true. Keep values realistic; never invent new fields."
+                    ),
+                },
+                {"role": "user", "content": f"Refine these forecasts\n{json.dumps(payload)}"},
+            ],
+            "max_tokens": 4000,
+            "temperature": 0.2,
+        })
+        req = urllib.request.Request(
+            OPENROUTER_BASE_URL,
+            data=body.encode(),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=OPENROUTER_TIMEOUT) as resp:
+            text = resp.read().decode()
+        result = json.loads(text)
+        content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        content = _extract_json_array(content)
+        refined = json.loads(content) if content else None
+        if not isinstance(refined, list):
+            print("openrouter: failed: response was not a JSON array — regression fallback")
+            return
+        by_pid = {
+            item["product_id"]: item
+            for item in refined
+            if isinstance(item, dict) and "product_id" in item
+        }
+        matched = 0
+        for f in forecasts:
+            item = by_pid.get(f["product_id"])
+            if item is None:
+                continue
+            if "days_until_stockout" in item:
+                f["days_until_stockout"] = item["days_until_stockout"]
+            if "recommended_restock_qty" in item:
+                f["recommended_restock_qty"] = item["recommended_restock_qty"]
+            f["ai_refined"] = True
+            matched += 1
+        print(f"openrouter: ok, refined {matched}")
+    except Exception as exc:
+        print(f"openrouter: failed: {exc} — regression fallback")
+
+
+@app.get("/api/forecast")
+def forecast(
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    rows = db.execute("SELECT id, name, quantity FROM products ORDER BY id").fetchall()
+    series = _load_movements(db)
+    forecasts = []
+    for pid, name, qty in rows:
+        res = _forecast_for_product(series.get(pid, []), qty or 0)
+        forecasts.append({
+            "product_id": pid,
+            "name": name,
+            "current_qty": qty or 0,
+            "days_until_stockout": res["days_until_stockout"],
+            "recommended_restock_qty": res["recommended_restock_qty"],
+            "daily_consumption_rate": round(max(0, -res["daily_net_rate"]), 3),
+            "daily_net_rate": res["daily_net_rate"],
+            "ai_refined": False,
+        })
+    # Most urgent first: days until stockout ASC; no-consumption items last.
+    forecasts.sort(
+        key=lambda f: (
+            f["days_until_stockout"] is None,
+            f["days_until_stockout"] or 0,
+            f["product_id"],
+        )
+    )
+    total = len(forecasts)
+    page = forecasts[offset : offset + limit]
+    # Refine only the current page (the top urgent slice), never the catalog.
+    _refine_forecasts_with_openrouter(page)
+    return {"forecasts": page, "total": total}
+
+
+@app.get("/api/recommendations")
+def recommendations(
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    """
+    Restock candidates from current quantities + recent movement trends:
+    stock below LOW_STOCK_THRESHOLD, or depletion expected inside the
+    lead-time window.
+    """
+    rows = db.execute("SELECT id, name, quantity FROM products ORDER BY id").fetchall()
+    series = _load_movements(db)
+    items = []
+    for pid, name, qty in rows:
+        res = _forecast_for_product(series.get(pid, []), qty or 0)
+        days = res["days_until_stockout"]
+        needs_restock = (qty is not None and qty < LOW_STOCK_THRESHOLD) or (
+            days is not None and days < ANALYTICS_LEAD_DAYS
+        )
+        if needs_restock:
+            items.append({
+                "product_id": pid,
+                "name": name,
+                "current_qty": qty or 0,
+                "recommended_qty": res["recommended_restock_qty"],
+                "estimated_days_until_empty": days,
+            })
+    # Most urgent first: estimated days ASC; unknown depletion last.
+    items.sort(
+        key=lambda x: (
+            x["estimated_days_until_empty"] is None,
+            x["estimated_days_until_empty"] or 0,
+            x["product_id"],
+        )
+    )
+    return {"recommendations": items[offset : offset + limit], "total": len(items)}
 
 
 @app.get("/api/health")
