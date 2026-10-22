@@ -152,8 +152,9 @@ def test_forecast_linear_regression_on_movements(api, admin_api, db_connection):
     f = {row["product_id"]: row for row in response.json()["forecasts"]}[product_id]
     assert f["daily_consumption_rate"] == 2.0
     assert f["days_until_stockout"] == 5  # 10 units / 2 per day
-    # restock covers the 14-day lead + 10% safety: 2 * 14 * 1.1 = 30.8 → round(40.8 - 10) = 31
-    assert f["recommended_restock_qty"] == 31
+    # restock covers the per-product lead time (default 7) + 10% safety:
+    # 2 * 7 * 1.1 = 15.4 → target max(10 + 15.4, reorder_point 10) → round(25.4 - 10) = 15
+    assert f["recommended_restock_qty"] == 15
     assert f["ai_refined"] is False  # conftest disables OpenRouter
 
 
@@ -271,7 +272,7 @@ def test_openrouter_failure_falls_back_to_regression(api, admin_api, db_connecti
     f = response.json()["forecasts"][0]
     assert f["ai_refined"] is False
     assert f["days_until_stockout"] == 5  # regression value untouched
-    assert f["recommended_restock_qty"] == 31
+    assert f["recommended_restock_qty"] == 15
     assert "openrouter: failed: boom — regression fallback" in capsys.readouterr().out
 
 
@@ -385,8 +386,9 @@ def test_recommendations_empty_when_all_healthy(api, admin_api, db_connection):
 
 
 def test_recommendations_sorted_by_urgency(api, admin_api, db_connection):
-    # Fast depletes in ~5 days, Slow in ~10 days (both inside the 14-day
-    # lead window); LowNoTrend is below threshold with unknown depletion.
+    # Fast depletes in ~5 days (< lead_time_days=7) → recommended;
+    # Slow depletes in ~10 days (not < 7, qty=10 not < 10) → excluded;
+    # LowNoTrend qty=2 (< reorder_point=10) → recommended.
     _b, pid_fast = _insert_brand_product(db_connection, brand_name="RecFast", product_name="Fast", qty=10)
     _b, pid_slow = _insert_brand_product(db_connection, brand_name="RecSlow", product_name="Slow", qty=10)
     _b, pid_low = _insert_brand_product(db_connection, brand_name="RecLow", product_name="LowNoTrend", qty=2)
@@ -397,14 +399,14 @@ def test_recommendations_sorted_by_urgency(api, admin_api, db_connection):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 3
-    assert [i["product_id"] for i in body["recommendations"]] == [pid_fast, pid_slow]
+    # Only Fast (days<7) + LowNoTrend (qty<10) = 2 items, sorted by urgency (days ASC, unknown last)
+    assert body["total"] == 2
+    assert [i["product_id"] for i in body["recommendations"]] == [pid_fast, pid_low]
 
     tail = admin_api.get("/api/recommendations", params={"limit": 2, "offset": 2})
     assert tail.status_code == 200
     tail_items = tail.json()["recommendations"]
-    assert [i["product_id"] for i in tail_items] == [pid_low]  # unknown depletion last
-    assert tail_items[0]["estimated_days_until_empty"] is None
+    assert tail_items == []
 
 
 # ------------------------------------------------------------------ dashboard stats
