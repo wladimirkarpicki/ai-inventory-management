@@ -1095,6 +1095,34 @@ def movements(
     return {"items": items, "total": total}
 
 
+@app.get("/api/movements/daily")
+def movements_daily(
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+    days: int = Query(30, ge=1, le=90),
+) -> dict:
+    """
+    Per-day in/out sums for the dynamics chart (P14). The signed-qty
+    convention sums straight into the two directions; one bucket per day,
+    oldest first. Days without movements are simply absent.
+    """
+
+    rows = db.execute(
+        "SELECT date_trunc('day', timestamp)::date, "
+        "COALESCE(SUM(qty) FILTER (WHERE qty > 0), 0), "
+        "COALESCE(SUM(-qty) FILTER (WHERE qty < 0), 0) "
+        "FROM stock_movements "
+        "WHERE timestamp >= now() - make_interval(days => %s) "
+        "GROUP BY 1 ORDER BY 1",
+        (days,),
+    ).fetchall()
+    items = [
+        {"date": r[0].isoformat(), "in_qty": r[1], "out_qty": r[2]}
+        for r in rows
+    ]
+    return {"items": items, "days": days}
+
+
 def _extract_json_array(content: str) -> str:
     """
     Free-pool reasoning models often prepend Chain-of-Thought prose or a

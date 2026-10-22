@@ -7,11 +7,21 @@ import {
   TagsIcon,
   TriangleAlertIcon,
 } from "lucide-react"
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 import { toast } from "sonner"
 
 import {
   api,
   getToken,
+  type DailyMovement,
   type ForecastPage,
   type MovementPage,
   type RecommendationPage,
@@ -139,12 +149,28 @@ export function DashboardPage() {
   const [movementPage, setMovementPage] = useState<MovementPage | null>(null)
   const [movementOffset, setMovementOffset] = useState(0)
 
+  const [daily, setDaily] = useState<DailyMovement[] | null>(null)
+
   useEffect(() => {
     api<Stats>("/api/dashboard/stats")
       .then(setStats)
       .catch((err) =>
         setError(err instanceof Error ? err.message : "Failed to load.")
       )
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    api<{ items: DailyMovement[] }>("/api/movements/daily")
+      .then((data) => {
+        if (!cancelled) setDaily(data.items)
+      })
+      .catch(() => {
+        if (!cancelled) setDaily([])
+      })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -444,6 +470,25 @@ export function DashboardPage() {
             <span className="animate-pulse h-4 w-6 rounded mr-2" />
             Recommendations unavailable
           </p>
+        </div>
+      )}
+
+      {/* Stock dynamics chart (P14) */}
+      {daily !== null && daily.length > 0 && (
+        <div className="mt-6">
+          <h3 className="font-medium text-sm mb-3">Stock dynamics (30 days)</h3>
+          <div className="h-64 w-full rounded border bg-card p-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={daily} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="date" fontSize={11} tickLine={false} />
+                <YAxis fontSize={11} width={32} allowDecimals={false} />
+                <Tooltip />
+                <Bar dataKey="in_qty" name="Units in" fill="#22c55e" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="out_qty" name="Units out" fill="#ef4444" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       )}
 
