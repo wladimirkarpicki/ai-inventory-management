@@ -938,6 +938,39 @@ def export_products_csv(
     )
 
 
+@app.get("/api/export/movements.csv")
+def export_movements_csv(
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+) -> StreamingResponse:
+    """
+    Full stock-movement history as CSV (P12). Mirrors the movements API
+    fields, newest first — the same ordering the dashboard list shows.
+    """
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Product ID", "Product", "Direction", "Qty", "Reason", "Timestamp"])
+
+    rows = db.execute(
+        "SELECT m.id, m.product_id, p.name, m.in_out, m.qty, m.reason, m.timestamp "
+        "FROM stock_movements m JOIN products p ON p.id = m.product_id "
+        "ORDER BY m.timestamp DESC, m.id DESC"
+    ).fetchall()
+
+    for r in rows:
+        timestamp = r[6].isoformat() if hasattr(r[6], "isoformat") else str(r[6])
+        writer.writerow([r[0], r[1], r[2], r[3], r[4], r[5] or "", timestamp])
+
+    output.seek(0)
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=movements.csv"},
+    )
+
+
 # ---------------------------------------------------------------- analytics (P7 — paginated, batched, OpenRouter fixed)
 
 ANALYTICS_WINDOW_DAYS = 30
