@@ -136,6 +136,8 @@ class ProductIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     price: float = Field(gt=0)
     quantity: int = Field(ge=0)
+    reorder_point: int = Field(default=10, ge=0)
+    lead_time_days: int = Field(default=7, ge=1)
     reason: str | None = Field(default=None, max_length=200)
 
 
@@ -973,7 +975,7 @@ def _load_movements(db: psycopg.Connection) -> dict[int, list]:
     return series
 
 
-def _forecast_for_product(movements: list, current_qty: int) -> dict:
+def _forecast_for_product(movements: list, current_qty: int, reorder_point: int = 10, lead_time_days: int = 7) -> dict:
     slope = _daily_series(movements)
     if slope is None and movements:
         first_ts = movements[0][0]
@@ -991,8 +993,8 @@ def _forecast_for_product(movements: list, current_qty: int) -> dict:
     # Recommended restock = enough for lead-time + 10% safety, at least to threshold
     needed = 0
     if daily_rate < 0:
-        needed = abs(daily_rate) * ANALYTICS_LEAD_DAYS * 1.1
-    target = max(current_qty + needed, LOW_STOCK_THRESHOLD)
+        needed = abs(daily_rate) * lead_time_days * 1.1
+    target = max(current_qty + needed, reorder_point)
     recommended = max(0, round(target - current_qty))
     return {
         "days_until_stockout": days_until,
@@ -1147,11 +1149,13 @@ def forecast(
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     offset: int = Query(0, ge=0),
 ) -> dict:
-    rows = db.execute("SELECT id, name, quantity FROM products ORDER BY id").fetchall()
+    rows = db.execute(
+        "SELECT id, name, quantity, reorder_point, lead_time_days FROM products ORDER BY id"
+    ).fetchall()
     series = _load_movements(db)
     forecasts = []
-    for pid, name, qty in rows:
-        res = _forecast_for_product(series.get(pid, []), qty or 0)
+    for pid, name, qty, rp, lt in rows:
+        res = _forecast_for_product(series.get(pid, []), qty or 0, reorder_point=rp, lead_time_days=lt)
         forecasts.append({
             "product_id": pid,
             "name": name,
@@ -1189,15 +1193,15 @@ def recommendations(
     stock below LOW_STOCK_THRESHOLD, or depletion expected inside the
     lead-time window.
     """
-    rows = db.execute("SELECT id, name, quantity FROM products ORDER BY id").fetchall()
+    rows = db.execute(
+        "SELECT id, name, quantity, reorder_point, lead_time_days FROM products ORDER BY id"
+    ).fetchall()
     series = _load_movements(db)
     items = []
-    for pid, name, qty in rows:
-        res = _forecast_for_product(series.get(pid, []), qty or 0)
+    for pid, name, qty, rp, lt in rows:
+        res = _forecast_for_product(series.get(pid, []), qty or 0, reorder_point=rp, lead_time_days=lt)
         days = res["days_until_stockout"]
-        needs_restock = (qty is not None and qty < LOW_STOCK_THRESHOLD) or (
-            days is not None and days < ANALYTICS_LEAD_DAYS
-        )
+        needs_restock = (qty is not None and qty < rp) or (days is not None and days < lt)
         if needs_restock:
             items.append({
                 "product_id": pid,
