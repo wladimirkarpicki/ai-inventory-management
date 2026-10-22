@@ -74,14 +74,15 @@ def _clean_tables():
 
 
 @pytest.fixture(autouse=True)
-def _disable_openrouter(monkeypatch):
+def _disable_llm(monkeypatch):
     """
-    The forecast endpoint is best-effort OpenRouter; keep tests deterministic
-    by skipping the live LLM call (regression path stays under test).
+    The forecast endpoint is best-effort LLM (NVIDIA Build); keep tests
+    deterministic by skipping the live LLM call (regression path stays
+    under test).
     """
 
-    monkeypatch.setenv("OPENROUTER_API_KEY", "")
-    monkeypatch.setenv("OPENROUTER_MODEL", "")
+    monkeypatch.setenv("NVIDIA_API_KEY", "")
+    monkeypatch.setenv("NVIDIA_MODEL", "")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -131,7 +132,7 @@ def _reset_forecast_cache():
 
 
 @pytest.fixture(autouse=True)
-def _reset_openrouter_cooldown():
+def _reset_llm_cooldown():
     """
     The 429 cooldown (P13) is in-process state; a cooldown armed in one
     test must not silence refinement in the next one.
@@ -139,11 +140,11 @@ def _reset_openrouter_cooldown():
 
     import main as main_module
 
-    main_module._openrouter_state["cooldown_until"] = 0.0
+    main_module._llm_state["cooldown_until"] = 0.0
 
     yield
 
-    main_module._openrouter_state["cooldown_until"] = 0.0
+    main_module._llm_state["cooldown_until"] = 0.0
 
 
 @pytest.fixture()
