@@ -1,12 +1,12 @@
 # Agent Plan — inventory-management-system
-Last updated: 2026-10-22 15:35
-Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-10-22 12:43 (= Last updated глобала при последней сверке)
+Last updated: 2026-10-22 19:50
+Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-10-22 18:47 (= Last updated глобала при последней сверке)
 Роль: проектный агент (inventory-management-system) — работа с кодинг-сабагентами; задачи — от главного агента (Team Lead) или пользователя.
 
 ## Status
-- Active focus: роадмап P10–P14 полностью слит в main (c45b070); live-smoke цепочки назначен inventory-ux-agent (task-6); Dependabot #20 ждёт авто-close после перескана main
+- Active focus: роадмап P10–P14 слит в main (46de23b) и live-верифицирован (task-6 completed); Dependabot #20 fixed (auto-close 15:09Z); backlog пуст — ждём новых задач от пользователя
 - Blocked: —
-- Risks: ветки P10/P11 стакнуты (P11 поверх P10) — мержить строго по порядку; Dependabot alert #20 (high) на main не разобран
+- Risks: Docker daemon падал посреди rebuild (recovered через docker desktop start); finding F1 — OpenRouter-вызов может висеть сильно дольше 15s при DNS-столле после рестарта демона (первый forecast-запрос висел ~25 мин; P11-кэш экранирует остальные запросы) — кандидат в backlog на hardening
 
 ## Tasks
 | ID | Task | Status | Branch | AC / Verification | Evidence |
@@ -68,3 +68,7 @@ Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-1
 - ✅ P9 (2026-10-21) — CSV-импорт: POST /api/products/import (гварды 1MB/1000 строк/utf-8-sig, маппинг по заголовку, дубликаты БД+файл, import-движения одной транзакцией), Import CSV + шаблон в UI; pytest 64 green (feat/csv-import)
 - ✅ P10 (2026-10-22) — reorder point + lead_time_days per-product: миграция 002, restock = rate×lead×1.1 с target≥rp, рекомендации на per-product порогах, API+UI ProductsPage; pytest 64/0 (feat/reorder-point, ff33e29)
 - ✅ P11 (2026-10-22) — кэш прогноза in-memory TTL 10 мин: хит без БД/OpenRouter, refine на промахе, инвалидация на всех записях товаров, conftest-reset; pytest 67/0 (feat/forecast-cache, 4a31d66, стакнуто на P10)
+- ✅ P12 (2026-10-22) — CSV-экспорт движений /api/export/movements.csv + кнопка Export CSV; pytest 70/0 (merged 11c7adf)
+- ✅ P13 (2026-10-22) — OpenRouter 429 → cooldown 5 мин + лог, повторные GET без retry-storm; pytest 72/0 (merged 6aac90f)
+- ✅ P14 (2026-10-22) — график Stock dynamics (30 days) на recharts 3.10.1 + /api/movements/daily; pytest 76/0 (merged c45b070)
+- ✅ LIVE SMOKE P10–P14 (2026-10-22 19:45, lead, task-6): rebuild после падения демона (docker desktop start); /api/ready 200; миграция 002 в контейнерной БД (reorder_point=10/lead_time_days=7); /api/products — оба поля в items; forecast ×2 байт-идентичны за 0.0s, в логах ровно один openrouter: refining (модель openrouter/free) → «failed: response was not a JSON array — regression fallback» (free-pool лотерея, регрессия сохранена) — P11-кэш-хит доказан; /api/movements/daily 200 (29 items); /api/export/movements.csv 200 text/csv attachment (33 строки); все 6 UI-строк в бандле (Reorder point, Lead time (days), Export CSV, Stock dynamics (30 days), Units in/out); smoke-юзер удалён; finding F1 задокументирован в Risks
