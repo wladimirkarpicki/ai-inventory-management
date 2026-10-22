@@ -17,6 +17,7 @@ export default defineConfig({
       output: {
         manualChunks: (id) => {
           if (id && id.includes("radix-ui")) return "radix-ui";
+          if (id && id.includes("recharts")) return "recharts";
           return undefined;
         },
       },

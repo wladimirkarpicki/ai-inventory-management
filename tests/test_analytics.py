@@ -145,6 +145,45 @@ def test_movements_export_empty_history(api, admin_api, db_connection):
     assert lines == ["ID,Product ID,Product,Direction,Qty,Reason,Timestamp"]
 
 
+# ------------------------------------------------------------------ /api/movements/daily (P14)
+
+
+def test_movements_daily_requires_auth(api):
+    assert api.get("/api/movements/daily").status_code == 401
+
+
+def test_movements_daily_aggregates_directions(api, admin_api, db_connection):
+    _b, pid = _insert_brand_product(db_connection, product_name="Daily", qty=100)
+    # 1 day ago: 3 units out; 1 and 2 days ago: 5 units in each day.
+    _insert_movements(db_connection, pid, qty_per_day=-3, days=1)
+    _insert_movements(db_connection, pid, qty_per_day=5, days=2, reason="restock")
+
+    response = admin_api.get("/api/movements/daily")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["days"] == 30
+    items = body["items"]
+    assert len(items) == 2  # two distinct days, oldest first
+    older, newer = items
+    assert older["in_qty"] == 5 and older["out_qty"] == 0
+    assert newer["in_qty"] == 5 and newer["out_qty"] == 3
+
+
+def test_movements_daily_empty_history(api, admin_api, db_connection):
+    _insert_brand_product(db_connection, product_name="Still", qty=10)
+
+    response = admin_api.get("/api/movements/daily")
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+
+
+def test_movements_daily_window_validation(api, admin_api):
+    assert admin_api.get("/api/movements/daily", params={"days": 0}).status_code == 422
+    assert admin_api.get("/api/movements/daily", params={"days": 91}).status_code == 422
+
+
 # ------------------------------------------------------------------ /api/forecast
 
 
