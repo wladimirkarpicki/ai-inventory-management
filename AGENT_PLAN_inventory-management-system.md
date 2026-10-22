@@ -1,87 +1,60 @@
 # Agent Plan — inventory-management-system
-Last updated: 2026-10-19 19:15
-Process: глобальный AGENTS.md — C:\Users\Wladimir\.dsh\AGENTS.md | Synced: 2026-10-19 18:55 (= Last updated глобала при консолидации)
+Last updated: 2026-10-22 01:15
+Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-10-22 12:43 (= Last updated глобала при последней сверке)
 Роль: проектный агент (inventory-management-system) — работа с кодинг-сабагентами; задачи — от главного агента (Team Lead) или пользователя.
-# Долговременная память агента | Источник истины: этот файл | Читать ПЕРВЫМ при каждом запуске
-# Каноническое имя (v3-нейминг, 2026-10-19): AGENT_PLAN_inventory-management-system.md
-# Глобальный AGENTS.md (user-global, авто-подхват DSH в каждой сессии): C:\Users\Wladimir\.dsh\AGENTS.md —
-# процесс живёт там; этот файл — только состояние проекта. Процессные секции ниже — временные,
-# убрать при ближайшей сверке (Synced) с глобалом.
 
-# 🛑 SYSTEM PROMPT — SELF-MANAGING DEVELOPMENT AGENT (НЕИЗМЕНЯЕМАЯ ЧАСТЬ)
-# При КАЖДОМ запросе: 1) Прочитать этот файл. 2) Оценить статус. 3) Предложить шаги.
-# Фразы «сверимся с планом» / «что по плану» / «обнови план» → относятся сюда.
+## Status
+- Active focus: цепочка P7→P9.1 live-верифицирована и задеплоена (контейнер healthy); ждём merge-решение пользователя; далее P10 (reorder point) на board
+- Blocked: —
+- Risks: —
 
-## 1. Обязательный ритуал
-1. Прочитать этот файл (`AGENT_PLAN.md`) ПЕРВЫМ.
-2. Оценить текущий статус (done / in-progress / blocked / risks).
-3. Предложить следующие шаги по плану; только потом выполнять запрос.
-4. Даже без напоминания — возвращаться сюда самостоятельно.
-5. Новый запрос = 8 шагов: план → сопоставить с планом → задача → ветка → выполнение → тесты → commit/merge → обновить план.
-
-## 2. Принципы
-- Plan → Execute → Verify → Update. Destructive — только с коротким планом и подтверждением.
-- Каждая задача = отдельная ветка (`feat/...`). Никогда не коммитить напрямую в `main`.
-  (Задокументированное отклонение: docs-коммит 2b275d4 — процедурный сбой, контент корректен, CI green.)
-- Перед merge: тесты + evidence + PR-style описание; после — обновить этот файл.
-- KISS; high-risk (удаления, force-push, прямой push в main) — только с явным подтверждением человека.
-
-## 3. Структура задачи (всегда фиксируй)
-ID / Название / Цель (1 предложение) / Scope / Acceptance Criteria / Verification / Constraints / Статус / Evidence.
-
-## 4. Memory & Self-updating
-- Источник истины — файлы, не chat-history: этот план + артефакты репозитория.
-- После каждой задачи/сессии обновлять план (статусы, evidence, learnings, decisions).
-
----
-
-## Status (2026-10-19 19:15)
-- 🎉 5-фазный план улучшений ВЫПОЛНЕН ПОЛНОСТЬЮ; проект в maintenance mode.
-- CI: Tests + Security зелёные на main (92a8d68); каждый мерж проверен через GitHub API.
-- Live stack docker compose RUNNING: app (healthy) + db (healthy) + grafana:3000 + prometheus (scrapes app:8000/metrics, job=inventory-app, up).
-- Скрипты верифицированы через WSL bash: monitor.sh → 3/3 OK; backup.sh → валидный pg_dump в backups/.
-- Ветки очищены (local + remote): все feat/* удалены, остался только main.
-- Кодовых долгов нет: pytest 26/26, vitest 8/8, pip-audit 0 уязвимостей. Открытых PR: 0.
-- CI: Tests + Security зелёные на main (2b275d4); каждый мерж проверен по jobs через GitHub API.
-- Active focus: —; Blocked: —; Risks: —.
-- ✅ Smoke-тест ops-инструментов после перезапуска Docker Desktop — ВЫПОЛНЕН (2026-10-19 18:20):
-  - `scripts/monitor.sh`: 3/3 эндпойнта OK (liveness/readiness/metrics)
-  - `scripts/backup.sh`: pg_dump схемы ecommerce — OK
-  - `docker compose --profile monitoring up`: Grafana 302 (login), Prometheus ready, targets: inventory-app: up, prometheus: up
-  - Docker Desktop 29.8.2 — работает, диск 4.5 ГБ свободно
-
-## Tasks (все завершены)
-| ID | Task | Status | Branch | Evidence (кратко) |
-|----|------|--------|--------|-------------------|
-| P1 | Security CI suite | ✅ merged (PR #28) | feat/security-ci | security.yml, dependabot.yml, ruff.toml |
-| P2 | Docker-оптимизация | ✅ merged (0509162) | feat/docker-opt | HEALTHCHECK (stdlib urllib), Dockerfile.dev, compose hardening (networks/limits/logging) |
-| P3 | CI quality green | ✅ merged (0684a3b) | feat/full-ci | все 6-7 jobs green, coverage 90% артефакт, vitest в CI, pre-commit |
-| P4 | DevOps/мониторинг | ✅ merged (c5343e2) | feat/devops | /api/ready (DB probe), /metrics (instrumentator), monitoring profile (prometheus v3.15.0 + grafana 13.2.4), backup.sh/monitor.sh, .env.template, .gitattributes LF |
-| P5 | Documentation | ✅ merged (180bfdb) | feat/docs | docs/CI.md, docs/OPERATIONS.md, README refresh (бейджи, Docker-раздел, coverage/pre-commit) |
+## Tasks
+| ID | Task | Status | Branch | AC / Verification | Evidence |
+|----|------|--------|--------|-------------------|----------|
+| P1 | Security CI suite | ✅ merged (PR #28) | feat/security-ci | `pytest` → exit 0; `ruff check` → exit 0 | security.yml, dependabot.yml, ruff.toml |
+| P2 | Docker-оптимизация | ✅ merged (0509162) | feat/docker-opt | `docker build` → exit 0, image < 200MB | optimized Dockerfile |
+| P3 | CI quality green | ✅ merged (0684a3b) | feat/full-ci | все 6-7 jobs green, coverage 90% артефакт, vitest в CI, pre-commit | CI config, coverage artifact |
+| P4 | DevOps/мониторинг | ✅ merged (c5343e2) | feat/devops | /api/ready → 200; /metrics → 200; compose --profile monitoring up | monitoring profile, backup.sh, .env.template |
+| P5 | Documentation | ✅ merged (180bfdb) | feat/docs | docs/CI.md, docs/OPERATIONS.md, README refresh | CI.md, OPERATIONS.md, README |
+| P6 | Dashboard analytics + AI forecast | completed (lint+commit) | feat/dashboard-analytics | pytest 37 passed; ruff cleanup done; endpoint JSON verified via curl | DB migration + API endpoints + OpenRouter fallback regression + Dashboard updates + tests all green |
+| P7 | Dashboard UX: пагинация + история движений + OpenRouter-фикс | completed (UX+tests+commit) | feat/dashboard-analytics | GET /api/forecast?limit=10&offset=0 → 200 + total; pytest → 0 failed; pnpm build → exit 0; в docker logs видны openrouter-строки | inventory-ux-agent 19:55: GET forecast/rec/movements → 200 (limit/offset/total; days ASC, null в конце; verified vs throwaway DB); stats.low_stock_alerts ≤ 10; pytest 43 passed / 0 failed; ruff 0; pnpm build exit 0; OpenRouter: refine только топ-страницы, маппинг по product_id, timeout 15s, skip/ok/failed-логи (моки в тестах); LEAD LIVE 22:26: контейнер eb0c8b4, openrouter-логи refining → «ok, refined 10»; free-пул лотерейный (1/3 вызовов refine, остальные — штатный fallback); ai_refined=true в ответах, пример: restock 77→10 (Coffee-Mate, qty=5) |
+| P8 | Авто-запись stock_movements при реальных операциях | completed (auto+tests+commit) | feat/auto-movements | PATCH qty → движение в той же транзакции; pytest → 0 failed | inventory-ux-agent 21:55: POST → in 'initial' (только qty>0); PATCH delta → in/out, reason из payload или manual_edit; без изменения qty → движения нет; атомарность — rollback при падении INSERT (тест с raise_server_exceptions=False); DELETE товара чистит его движения (FK, та же транзакция); UI: Reason for change (Correction/Restock/Sale/Write-off); + P7.1-хотфикс: толерантный парсинг OpenRouter content (_extract_json_array: strip/fence/[ … ]); pytest 53 passed / 0 failed; ruff 0; pnpm build exit 0; LEAD LIVE 22:26: PATCH +1 restock → движение #31 (in/+1/restock) в GET /api/movements мгновенно; restore → #32 (out/−1/correction) |
+| P9 | CSV-импорт товаров | completed (import+tests+commit) | feat/csv-import | POST /api/products/import → imported/skipped/errors; pytest → 0 failed | inventory-ux-agent 22:55: multipart .csv (utf-8-sig/BOM, ≤1MB, ≤1000 строк), маппинг колонок по именам заголовка (лишние игнорируются); валидные → INSERT + движение in 'import' (qty>0) одной транзакцией (P8-паттерн); дубликаты (БД + внутри файла, case-insensitive name+brand) → skipped; битые → errors с 1-based номером строки данных; unknown brand → errors; UI: Import CSV + диалог-сводка + CSV template (client blob); AC 3+1+1 → imported=3/skipped=1/errors=1 зелёный; pytest 64 passed / 0 failed; ruff 0; pnpm build (tsc -b && vite build) exit 0; P9.1-ХОТФИКС: container crash-loop пойман live-смоуком лида 23:51 — FastAPI требует python-multipart при РЕГИСТРАЦИИ роута с UploadFile (startup, не request-time); host-тесты не ловили (пакет есть глобально на хосте); фикс — python-multipart>=0.0.32 в requirements.txt (резолв pip dry-run = 0.0.32), pytest 64 green после фикса; LEAD LIVE 01:15: контейнер healthy; POST /api/products/import → 200 {imported:2, skipped:[{row:3,duplicate}], errors:[{row:4,invalid price}]} — AC точен; движение #33 (in/+5/'import') записано автоматически (P8-интеграция); cleanup DELETE 2009/2010 → 200 ok, движения очищены автоматически |
+| P10 | Reorder point + lead_time_days | pending | TBD | миграция 002; restock = rate×lead×1.1; pytest → 0 failed | роадмап, утверждён 19:48 |
+| P11 | Кэш прогноза (TTL 5–15 мин) | pending | TBD | повторный GET forecast без пересчёта (кэш-хит) | роадмап, утверждён 19:48 |
+| P12 | CSV-экспорт движений | pending | TBD | GET /api/movements/export → text/csv | роадмап, утверждён 19:48 |
+| P13 | Rate-limit OpenRouter (кэш refine, 429-fallback) | pending | TBD | 429 → regression fallback + лог | роадмап, утверждён 19:48 |
+| P14 | Графики динамики (recharts — новая dep) | pending | TBD | pnpm build exit 0 с recharts | роадмап, утверждён 19:48 |
 
 ## Decisions
 - 2026-10-18 — v2-шаблон: процессные секции вынести в глобальный AGENTS.md, план хранит состояние. (Глобал создан 2026-10-19 — путь в Process-строке шапки; процессные секции ниже временные, убрать при ближайшей сверке Synced.)
 - 2026-10-18 — переименование AGENT_MANAGEMENT_PLAN.md → AGENT_PLAN.md (v2, глобальный шаблон). Завершено 2026-10-19 решением пользователя: AGENT_PLAN.md — единственный план; AGENT_MANAGEMENT_PLAN.md удалён (история в git).
 - 2026-10-19 — nginx+SSL: ОТКЛОНЕНО пользователем («приложение работает локально»); триггер возврата — домен/продакшен.
 - 2026-10-19 — redis: ОТКЛОНЕНО (YAGNI, нет потребителя); триггер возврата — 2+ реплики приложения (общий rate-limit/кэш).
+- 2026-10-21 — OpenRouter: ТОЛЬКО free models router (`openrouter/free`) — директива пользователя; verified .env (L8) / compose.yml (L40) / main.py (L876).
+- 2026-10-21 — Утверждено пользователем: P8 (авто-запись движений) + P9 (CSV-импорт) — на board (task-3/task-4); роадмап P10–P14: reorder point, кэш прогноза, CSV-экспорт, rate-limit OpenRouter, графики recharts (новая dep одобрена явно).
+- 2026-10-21 — P8 (подтверждено лидом): ветка feat/auto-movements от feat/dashboard-analytics; английские лейблы причин Restock/Sale/Write-off/Correction → restock/sale/write_off/manual_edit; qty=0 при создании → без движения («In +0» — мусор).
+- 2026-10-21 — P8: qty в stock_movements хранится ЗНАКОВЫМ (out → отрицательный), а не |delta| из буквенной спеки task-3 — конвенция схемы (миграция 001: «positive or negative depending on in_out»), аналитика (_daily_series суммирует qty напрямую) и сиды/P7-тесты уже знаковые; |delta| делал бы out-движения «ростом» в прогнозе.
+- 2026-10-21 — P8: DELETE товара удаляет его движения в той же транзакции — FK без CASCADE блокировал бы удаление (падал существующий тест test_product_update_and_delete); история уходит вместе с товаром.
+- 2026-10-21 — P9 (подтверждено лидом 22:20): ветка feat/csv-import от feat/auto-movements (eb0c8b4); цепочка P7→P8→P9, мерж всей цепочки — с пользователем в конце; row в skipped/errors = 1-based номер строки данных (заголовок=0); дубликаты (name+brand) и бренд-lookup case-insensitive; header-only → 400 как «пустой»; лишние колонки CSV игнорируются.
 
 ## Learnings
+- 2026-10-20 — Инфраструктура: Docker Desktop (WSL2) на внешнем накопителе D: (junction) — см. `ENVIRONMENT.md` (раздел Infra / Machine).
 - vite 8 требует function-синтаксис manualChunks в vite.config.ts; Dependabot-бамп без этого фикса ломает build (86ea77c).
 - Пины версий НЕ угадывать: проверять резолв `pip install --dry-run` (bandit-sarif-formatter существует только ≤1.1.1); теги образов проверять через Docker Hub API.
 - bandit умеет SARIF только через плагин bandit-sarif-formatter; pip-audit SARIF не умеет вовсе → JSON-артефакт; upload-artifact — актуальная major v7.
 - Транспорт pwsh иногда съедает бэкслеши в путях: всегда квочить `cd "C:\..."`; перед commit проверять `git branch --show-current`.
-- Непрочитанный файл не считать мусором: «сломанный» AGENT_PLAN.md оказался валидной v2-миграцией параллельной сессии (mojibake был частичным, контент читаем).
-
-## Key evidence
-- pytest 26/26 (вкл. /api/ready и /metrics), coverage ~90%; vitest 8/8; compose config VALID (base + `--profile monitoring`); pip-audit: 0 известных уязвимостей.
-- Цепочка мержей с зелёным CI на каждом шаге: 0509162 (P2) → 0684a3b (P3) → c5343e2 (P4) → 180bfdb (P5) → 2b275d4 (статус плана).
-- Liveness/readiness split: Dockerfile HEALTHCHECK → /api/health (контейнерный liveness); compose healthcheck → /api/ready (stack readiness с DB-пробой).
+- Непрочитанный файл не считать мусорным: «сломанный» AGENT_PLAN.md оказался валидной v2-миграцией параллельной сессии (mojibake был частичным, контент читаем).
+- 2026-10-20 — `seed_demo_data.py` с хоста (DATABASE_HOST=localhost) пишет в нативный Windows-PostgreSQL на 5432 (postgresql-x64-18); контейнерный db не публикует наружу — его нужно заполнять через `docker compose exec app python -m scripts.seed_demo_data --force`.
+- 2026-10-21 — Хостовая dev-БД (localhost/ecommerce) не имеет таблицы stock_movements (миграция 001 применена только в контейнере): хостовой запуск приложения упадёт на /api/forecast до применения миграции; AC-проверки гонять через throwaway-БД (паттерн conftest).
+- 2026-10-21 — delegation depth в сессии исчерпан (subagent-вызовы запрещены средой): проектный агент выполнил P7 сам — последовательные мелкие срезы с верификацией после каждого; паттерн признан рабочим для больших задач.
+- 2026-10-21 — free-pool reasoning-модели OpenRouter кладут CoT-текст/markdown-фенсы в message.content ПЕРЕД JSON — парсить толерантно (strip → снять ```-фенсы → извлечь срез [ … ] по find/rfind), см. _extract_json_array в main.py (P7.1-хотфикс, по смоук-логам контейнера).
+- 2026-10-21 — FastAPI проверяет python-multipart при РЕГИСТРАЦИИ роута с UploadFile (ensure_multipart_is_installed, routing.py → analyze_param → startup) — контейнер уходит в crash-loop; host-тесты этого НЕ ловят, если пакет есть глобально на хосте; requirements.txt — единственный источник зависимостей (P9.1-хотфикс).
 
 ## Next steps (maintenance)
 1. Рутина: мержить Dependabot PR (CI-gated); следить за недельным Security-сканом (понедельник 02:00 UTC).
 2. ✅ Выполнено: smoke-тест `scripts/backup.sh`, `scripts/monitor.sh`, `docker compose --profile monitoring up` (grafana :3000) — пройден.
-3. Убрать процессные секции 1-4 из этого файла: глобал создан (Process-строка в шапке), завершить v2-миграцию при ближайшей сверке.
-4. Новые задачи — по ритуалу из шапки.
+3. Новые задачи — по ритуалу из шапки.
 
 ## Archive
 - ✅ vitest 3.2 → 4.1.11 (PR #27); vite 6.4 → 8.3.4 (PR #23 + manualChunks fix); sonner 1.7 → 2.0.8 (PR #22); PRs #18–#21, #24, #25 — merged
@@ -89,3 +62,7 @@ ID / Название / Цель (1 предложение) / Scope / Acceptance
 - ✅ Docker-образ inventory-app собран локально (до падения Docker Desktop)
 - ✅ Миграция на AGENT_PLAN.md (v2, 2026-10-18) — консолидация завершена 2026-10-19
 - ✅ Smoke-тест ops-инструментов (2026-10-19 18:20): liveness/readiness/metrics OK, pg_dump ecommerce OK, monitoring stack (grafana/prometheus) up & healthy
+- ✅ Контейнерная БД заполнена 2026-10-20 через `docker compose exec app python -m scripts.seed_demo_data --force` — 20 бренда / 1004 товаров (in-container); вчерашний хостовый seed ушёл в нативный Windows-PostgreSQL на localhost:5432 (postgresql-x64-18), контейнерный db не公開ез наружу; restart app healthy, / и /api/health → 200, users=1
+- ✅ P7 (2026-10-21) — Dashboard UX: GET-пагинация forecast/recommendations/movements (limit/offset/total), Recent movements в UI, топ-10 low_stock_alerts, OpenRouter-фикс (top-page refine, product_id-маппинг, логи, compose env), N+1 → батч, 9999 → null, seed_movements на get_connection_string; pytest 43 green (feat/dashboard-analytics)
+- ✅ P8 + P7.1 (2026-10-21) — авто-запись движений: POST → initial, PATCH → delta с reason (одна транзакция, rollback-тест), DELETE чистит движения; UI Reason for change; OpenRouter-хотфикс _extract_json_array (fence/prose/мусор); pytest 53 green (feat/auto-movements)
+- ✅ P9 (2026-10-21) — CSV-импорт: POST /api/products/import (гварды 1MB/1000 строк/utf-8-sig, маппинг по заголовку, дубликаты БД+файл, import-движения одной транзакцией), Import CSV + шаблон в UI; pytest 64 green (feat/csv-import)
