@@ -419,7 +419,7 @@ export function DashboardPage() {
         <div className="mt-6 p-4 bg-muted rounded">
           <p className="text-sm">
             <span className="animate-pulse h-4 w-6 rounded mr-2" />
-            Forecast unavailable — {"OpenRouter API down, showing regression-based days_until_stockout only."}
+            Forecast unavailable — {"the forecast service could not be reached. Retry in a moment."}
           </p>
         </div>
       )}
