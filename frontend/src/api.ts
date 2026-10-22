@@ -83,6 +83,8 @@ export interface Product {
   name: string
   price: number
   quantity: number
+  reorder_point: number
+  lead_time_days: number
 }
 
 export interface ProductList {
