@@ -51,6 +51,7 @@ LOW_STOCK_THRESHOLD = 5
 LOW_STOCK_ALERTS_LIMIT = 10
 LOGIN_MAX_ATTEMPTS = 5
 LOGIN_LOCKOUT_SECONDS = 15 * 60
+FORECAST_CACHE_TTL_SECONDS = 10 * 60
 
 SORT_COLUMNS = {
     "id": "p.id",
@@ -61,6 +62,14 @@ SORT_COLUMNS = {
 }
 
 _failed_logins: dict = {}
+
+_forecast_cache: dict = {"ts": 0.0, "forecasts": [], "total": 0}
+
+
+def _invalidate_forecast_cache() -> None:
+    global _forecast_cache
+    _forecast_cache = {"ts": 0.0, "forecasts": [], "total": 0}
+
 
 app = FastAPI(title="Inventory Management API")
 
@@ -641,6 +650,7 @@ def create_product(
         _record_stock_movement(db, product_id, data.quantity, "initial")
 
     db.commit()
+    _invalidate_forecast_cache()
 
     return {
         "id": product_id,
@@ -693,6 +703,7 @@ def update_product(
         _record_stock_movement(db, product_id, delta, data.reason or "manual_edit")
 
     db.commit()
+    _invalidate_forecast_cache()
 
     return {
         "id": product_id,
@@ -720,6 +731,7 @@ def delete_product(
     db.execute("DELETE FROM stock_movements WHERE product_id = %s", (product_id,))
     db.execute("DELETE FROM products WHERE id = %s", (product_id,))
     db.commit()
+    _invalidate_forecast_cache()
 
     return {"ok": True}
 
@@ -893,6 +905,8 @@ def import_products_csv(
         imported += 1
 
     db.commit()
+    if imported > 0:
+        _invalidate_forecast_cache()
 
     return {"imported": imported, "skipped": skipped, "errors": errors}
 
@@ -1157,36 +1171,46 @@ def forecast(
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     offset: int = Query(0, ge=0),
 ) -> dict:
-    rows = db.execute(
-        "SELECT id, name, quantity, reorder_point, lead_time_days FROM products ORDER BY id"
-    ).fetchall()
-    series = _load_movements(db)
-    forecasts = []
-    for pid, name, qty, rp, lt in rows:
-        res = _forecast_for_product(series.get(pid, []), qty or 0, reorder_point=rp, lead_time_days=lt)
-        forecasts.append({
-            "product_id": pid,
-            "name": name,
-            "current_qty": qty or 0,
-            "days_until_stockout": res["days_until_stockout"],
-            "recommended_restock_qty": res["recommended_restock_qty"],
-            "daily_consumption_rate": round(max(0, -res["daily_net_rate"]), 3),
-            "daily_net_rate": res["daily_net_rate"],
-            "ai_refined": False,
-        })
-    # Most urgent first: days until stockout ASC; no-consumption items last.
-    forecasts.sort(
-        key=lambda f: (
-            f["days_until_stockout"] is None,
-            f["days_until_stockout"] or 0,
-            f["product_id"],
+    cached = _forecast_cache
+    if cached["ts"] > 0 and (time.monotonic() - cached["ts"]) < FORECAST_CACHE_TTL_SECONDS:
+        forecasts = cached["forecasts"]
+    else:
+        rows = db.execute(
+            "SELECT id, name, quantity, reorder_point, lead_time_days FROM products ORDER BY id"
+        ).fetchall()
+        series = _load_movements(db)
+        forecasts = []
+        for pid, name, qty, rp, lt in rows:
+            res = _forecast_for_product(series.get(pid, []), qty or 0, reorder_point=rp, lead_time_days=lt)
+            forecasts.append({
+                "product_id": pid,
+                "name": name,
+                "current_qty": qty or 0,
+                "days_until_stockout": res["days_until_stockout"],
+                "recommended_restock_qty": res["recommended_restock_qty"],
+                "daily_consumption_rate": round(max(0, -res["daily_net_rate"]), 3),
+                "daily_net_rate": res["daily_net_rate"],
+                "ai_refined": False,
+            })
+        # Most urgent first: days until stockout ASC; no-consumption items last.
+        forecasts.sort(
+            key=lambda f: (
+                f["days_until_stockout"] is None,
+                f["days_until_stockout"] or 0,
+                f["product_id"],
+            )
         )
-    )
-    total = len(forecasts)
+        cached["forecasts"] = forecasts
+        cached["ts"] = time.monotonic()
+        # Refine only on a cache miss: the page slice is part of the cached
+        # list (dicts are shared), so hits inside the TTL return the stored
+        # refinement without another OpenRouter call.
+        page = forecasts[offset : offset + limit]
+        _refine_forecasts_with_openrouter(page)
+        return {"forecasts": page, "total": len(forecasts)}
+
     page = forecasts[offset : offset + limit]
-    # Refine only the current page (the top urgent slice), never the catalog.
-    _refine_forecasts_with_openrouter(page)
-    return {"forecasts": page, "total": total}
+    return {"forecasts": page, "total": len(forecasts)}
 
 
 @app.get("/api/recommendations")
