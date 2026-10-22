@@ -15,7 +15,9 @@ CREATE TABLE IF NOT EXISTS products (
     name VARCHAR NOT NULL,
     brand_id INTEGER NOT NULL REFERENCES brands (id),
     price NUMERIC NOT NULL,
-    quantity INTEGER
+    quantity INTEGER,
+    reorder_point INTEGER NOT NULL DEFAULT 10,
+    lead_time_days INTEGER NOT NULL DEFAULT 7
 );
 
 CREATE TABLE IF NOT EXISTS users (

@@ -59,6 +59,8 @@ interface FormState {
   name: string
   price: string
   quantity: string
+  reorder_point: string
+  lead_time_days: string
   reason: string
 }
 
@@ -68,6 +70,8 @@ const EMPTY_FORM: FormState = {
   name: "",
   price: "",
   quantity: "",
+  reorder_point: "10",
+  lead_time_days: "7",
   reason: "manual_edit",
 }
 
@@ -131,6 +135,8 @@ export function ProductsPage() {
       name: product.name,
       price: String(product.price),
       quantity: String(product.quantity),
+      reorder_point: String(product.reorder_point),
+      lead_time_days: String(product.lead_time_days),
       reason: "manual_edit",
     })
     setFormOpen(true)
@@ -151,11 +157,13 @@ export function ProductsPage() {
 
     setSaving(true)
 
-    const body = {
+    const body: Record<string, unknown> = {
       brand_id: Number(form.brand_id),
       name: form.name,
       price: Number(form.price),
       quantity: Number(form.quantity),
+      reorder_point: Number(form.reorder_point),
+      lead_time_days: Number(form.lead_time_days),
     }
 
     try {
@@ -328,6 +336,8 @@ export function ProductsPage() {
                   <TableHead>Name</TableHead>
                   <TableHead className="text-right">Price</TableHead>
                   <TableHead className="text-right">Quantity</TableHead>
+                  <TableHead className="text-right">Reorder point</TableHead>
+                  <TableHead className="text-right">Lead time</TableHead>
                   <TableHead className="w-24" />
                 </TableRow>
               </TableHeader>
@@ -352,6 +362,12 @@ export function ProductsPage() {
                       >
                         {product.quantity}
                       </span>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {product.reorder_point ?? 10}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {product.lead_time_days ?? 7}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
@@ -487,6 +503,43 @@ export function ProductsPage() {
                     setForm((current) => ({
                       ...current,
                       quantity: e.target.value,
+                    }))
+                  }
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="reorder_point">Reorder point</Label>
+                <Input
+                  id="reorder_point"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={form.reorder_point}
+                  onChange={(e) =>
+                    setForm((current) => ({
+                      ...current,
+                      reorder_point: e.target.value,
+                    }))
+                  }
+                  required
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="lead_time_days">Lead time (days)</Label>
+                <Input
+                  id="lead_time_days"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={form.lead_time_days}
+                  onChange={(e) =>
+                    setForm((current) => ({
+                      ...current,
+                      lead_time_days: e.target.value,
                     }))
                   }
                   required
