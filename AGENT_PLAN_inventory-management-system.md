@@ -1,10 +1,10 @@
 # Agent Plan — inventory-management-system
-Last updated: 2026-10-23 17:40
+Last updated: 2026-10-23 21:05
 Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-10-22 18:47 (= Last updated глобала при последней сверке)
 Роль: проектный агент (inventory-management-system) — работа с кодинг-сабагентами; задачи — от главного агента (Team Lead) или пользователя.
 
 ## Status
-- Active focus: P16 (Low stock таб + UI polish) слит в main (1616e9e); контейнер пересобирается с новым UI; ждём фидбэка пользователя по «элементу со стрелочками» справа от вкладок
+- Active focus: P17 (UI polish v2) слит в main (de19e50), контейнер пересобирается; кандидаты дальше: чистка дублей товаров в БД, полный low-stock пейджин, UX Products
 - Blocked: —
 - Risks: ДУБЛИКАТЫ ТОВАРОВ В БД — root cause «дубликатов в alerts»: seed_demo_data запускался дважды без дедупа (~2004 строк, каждое имя x2); сейчас маскируется DISTINCT ON (name) в low_stock_alerts, но список товаров/прогноз считают дубли; кандидат в задачи: чистка дубликатов + UNIQUE(brand_id, lower(name)); Docker daemon нестабилен (падал 3+ раз за сутки, восстановление docker desktop start)
 
@@ -26,6 +26,7 @@ Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-1
 | P13 | Rate-limit OpenRouter (429-fallback) | ✅ merged (6aac90f) | feat/openrouter-ratelimit (cb8bf49) | 429 → regression fallback + лог | _openrouter_state cooldown 5 мин, на 429 армируется (лог rate-limited ... cooling down); внутри окна refine пропускается целиком (лог cooldown active) — без retry-storm в free-pool; прочие HTTPError → прежний failed-лог; conftest-reset cooldown; +2 теста (429 arms cooldown, second GET без urlopen-вызова; экспирация → refine resumes); pytest 72/0, ruff 0, pnpm build OK |
 | P15 | Dashboard tabs UI | ✅ merged (14ba179) | feat/dashboard-tabs (ac5e8ba) | 4 таба (Forecast/Rec/Dynamics/Movements), ленивая загрузка, честные тексты | табы в хедере дашборда; lazy loading по табам; честный текст «forecast service unreachable»; pytest 78/0, ruff 0, pnpm build OK | frontend/src/pages/DashboardPage.tsx (tabs, lazy loading, ARIA), main.py (нет изменений), tests (нет новых — ленивая загрузка покрыта существующими тестами) |
 | P16 | Low stock таб + UI polish дашборда | ✅ merged (1616e9e) | feat/dashboard-ui-polish (313c61b) | pytest 0 failed; pnpm build OK | 5-й таб Low stock с бейджем количества (секция над табами удалена); убраны дубль-h3 внутри всех панелей; фикс stray-запятой после forecast-панели (рендерилась как лишний элемент); empty-state для Dynamics; low_stock_alerts: сабквери-дедуп + ORDER BY quantity ASC (восстановлен порядок срочности, сломанный c0571b2 — поймал тест capped_at_top10); pytest 78/0, ruff 0, pnpm build OK |
+| P17 | UI polish v2 | ✅ merged (de19e50) | feat/dashboard-ui-polish-2 (1b28502) | pnpm build OK | убран theme-toggle из хедера (найден «stepper ▲▼» — иконка ☀ в мелком размере); убран бейдж-счётчик с таба Low stock; пагинация 15/таб; Stock dynamics 600px + сводка (in/out/net/active days) + период 30/90 + Legend + короткие даты; фикс дубля daily-useEffect (двойной fetch) |
 
 ## Decisions
 - 2026-10-18 — v2-шаблон: процессные секции вынести в глобальный AGENTS.md, план хранит состояние. (Глобал создан 2026-10-19 — путь в Process-строке шапки; процессные секции ниже временные, убрать при ближайшей сверке Synced.)
@@ -74,4 +75,5 @@ Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-1
 - ✅ P14 (2026-10-22) — график Stock dynamics (30 days) на recharts 3.10.1 + /api/movements/daily; pytest 76/0 (merged c45b070)
 - ✅ P15 (2026-10-23) — Dashboard tabs UI: 4 таба (Forecast, Recommendations, Stock dynamics, Recent movements) с ленивой загрузкой, честные тексты, ARIA-доступность; pytest 78/0, ruff 0, pnpm build OK (feat/dashboard-tabs, ac5e8ba)
 - ✅ P16 (2026-10-23) — Low stock таб + UI polish: 5 табов, бейдж количества, дедуп-h3, фикс запятой, empty-state Dynamics, порядок alerts quantity ASC (pytest 78/0; merged 1616e9e)
+- ✅ P17 (2026-10-23) — UI polish v2: без theme-toggle, пагинация 15, большой информативный Stock dynamics (600px, сводка, 30/90 дней, легенда); merged de19e50
 - ✅ LIVE SMOKE P10–P14 (2026-10-22 19:45, lead, task-6): rebuild после падения демона (docker desktop start); /api/ready 200; миграция 002 в контейнерной БД (reorder_point=10/lead_time_days=7); /api/products — оба поля в items; forecast ×2 байт-идентичны за 0.0s, в логах ровно один openrouter: refining (модель openrouter/free) → «failed: response was not a JSON array — regression fallback» (free-pool лотерея, регрессия сохранена) — P11-кэш-хит доказан; /api/movements/daily 200 (29 items); /api/export/movements.csv 200 text/csv attachment (33 строки); все 6 UI-строк в бандле (Reorder point, Lead time (days), Export CSV, Stock dynamics (30 days), Units in/out); smoke-юзер удалён; finding F1 задокументирован в Risks
