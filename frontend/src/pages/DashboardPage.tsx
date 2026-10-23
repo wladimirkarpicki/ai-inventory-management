@@ -2,10 +2,14 @@ import { useEffect, useState } from "react"
 import {
   BanknoteIcon,
   BoxesIcon,
+  ClipboardListIcon,
   DownloadIcon,
+  HistoryIcon,
+  LineChartIcon,
   PackageIcon,
   TagsIcon,
   TriangleAlertIcon,
+  BarChart2,
 } from "lucide-react"
 import {
   Bar,
@@ -73,10 +77,6 @@ function money(value: number): string {
   })
 }
 
-// Stat cards are narrow; a full "$10,388,461.13" is one unbreakable word
-// whose min-content width blows out the card grid and shoves the icon
-// badges around. Large values collapse to K/M; the exact amount stays
-// available as the hover tooltip.
 function compactMoney(value: number): string {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`
   if (value >= 10_000) return `$${(value / 1_000).toFixed(1)}K`
@@ -98,8 +98,6 @@ function formatTimestamp(iso: string): string {
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString("en-US")
 }
 
-// Server-side pagination controls: Prev/Next plus an "X–Y of Z" range
-// derived from the endpoint's total.
 function Pager({
   offset,
   total,
@@ -140,6 +138,8 @@ export function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const [activeTab, setActiveTab] = useState<"forecast" | "recommendations" | "dynamics" | "movements">("forecast")
+
   const [forecastPage, setForecastPage] = useState<ForecastPage | null>(null)
   const [forecastOffset, setForecastOffset] = useState(0)
 
@@ -160,6 +160,8 @@ export function DashboardPage() {
   }, [])
 
   useEffect(() => {
+    if (activeTab !== "dynamics") return
+
     let cancelled = false
     api<{ items: DailyMovement[] }>("/api/movements/daily")
       .then((data) => {
@@ -171,9 +173,11 @@ export function DashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [activeTab])
 
   useEffect(() => {
+    if (activeTab !== "forecast") return
+
     let cancelled = false
     api<ForecastPage>(`/api/forecast?limit=${PAGE_LIMIT}&offset=${forecastOffset}`)
       .then((data) => {
@@ -186,9 +190,11 @@ export function DashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [forecastOffset])
+  }, [forecastOffset, activeTab])
 
   useEffect(() => {
+    if (activeTab !== "recommendations") return
+
     let cancelled = false
     api<RecommendationPage>(
       `/api/recommendations?limit=${PAGE_LIMIT}&offset=${recommendationOffset}`
@@ -203,9 +209,11 @@ export function DashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [recommendationOffset])
+  }, [recommendationOffset, activeTab])
 
   useEffect(() => {
+    if (activeTab !== "movements") return
+
     let cancelled = false
     api<MovementPage>(`/api/movements?limit=${PAGE_LIMIT}&offset=${movementOffset}`)
       .then((data) => {
@@ -218,7 +226,23 @@ export function DashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [movementOffset])
+  }, [movementOffset, activeTab])
+
+  useEffect(() => {
+    if (activeTab !== "dynamics") return
+
+    let cancelled = false
+    api<{ items: DailyMovement[] }>("/api/movements/daily")
+      .then((data) => {
+        if (!cancelled) setDaily(data.items)
+      })
+      .catch(() => {
+        if (!cancelled) setDaily([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab])
 
   if (error) {
     return (
@@ -376,8 +400,66 @@ export function DashboardPage() {
         </p>
       )}
 
-      {/* Forecast section */}
-      {forecastPage !== null ? (
+      {/* Tab navigation */}
+      <div className="mt-6 border-b">
+        <nav className="flex gap-4 overflow-x-auto px-4" role="tablist" aria-label="Dashboard sections">
+          <button
+            role="tab"
+            aria-selected={activeTab === "forecast"}
+            onClick={() => setActiveTab("forecast")}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+              activeTab === "forecast"
+                ? "border-primary text-primary"
+                : "text-muted-foreground hover:text-foreground hover:border-muted"
+            }`}
+          >
+            <LineChartIcon className="size-4" />
+            Forecast
+          </button>
+          <button
+            role="tab"
+            aria-selected={activeTab === "recommendations"}
+            onClick={() => setActiveTab("recommendations")}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+              activeTab === "recommendations"
+                ? "border-primary text-primary"
+                : "text-muted-foreground hover:text-foreground hover:border-muted"
+            }`}
+          >
+            <ClipboardListIcon className="size-4" />
+            Recommendations
+          </button>
+          <button
+            role="tab"
+            aria-selected={activeTab === "dynamics"}
+            onClick={() => setActiveTab("dynamics")}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+              activeTab === "dynamics"
+                ? "border-primary text-primary"
+                : "text-muted-foreground hover:text-foreground hover:border-muted"
+            }`}
+          >
+            <BarChart2 className="size-4" />
+            Stock dynamics
+          </button>
+          <button
+            role="tab"
+            aria-selected={activeTab === "movements"}
+            onClick={() => setActiveTab("movements")}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+              activeTab === "movements"
+                ? "border-primary text-primary"
+                : "text-muted-foreground hover:text-foreground hover:border-muted"
+            }`}
+          >
+            <HistoryIcon className="size-4" />
+            Recent movements
+          </button>
+        </nav>
+      </div>
+
+      {/* Tab panels */}
+      {activeTab === "forecast" && forecastPage !== null && (
         <div className="mt-6">
           <h3 className="font-medium text-sm mb-3">Forecast</h3>
           <Table>
@@ -389,33 +471,35 @@ export function DashboardPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {forecastPage.forecasts.map((f) => (
-                <TableRow key={f.product_id}>
-                  <TableCell className="text-left product">{f.name}</TableCell>
-                  <TableCell className="text-center days">
-                    {formatDays(f.days_until_stockout)}
-                  </TableCell>
-                  <TableCell className="text-right restock">
-                    {f.recommended_restock_qty.toLocaleString("en-US")}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          {forecastPage.forecasts.length > 0 && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              Based on recent stock movement trends (linear regression)
-            </p>
-          )}
-          {forecastPage.total > 0 && (
-            <Pager
-              offset={forecastOffset}
-              total={forecastPage.total}
-              onOffsetChange={setForecastOffset}
-            />
-          )}
-        </div>
-      ) : (
+                {forecastPage.forecasts.map((f) => (
+                  <TableRow key={f.product_id}>
+                    <TableCell className="text-left product">{f.name}</TableCell>
+                    <TableCell className="text-center days">
+                      {formatDays(f.days_until_stockout)}
+                    </TableCell>
+                    <TableCell className="text-right restock">
+                      {f.recommended_restock_qty.toLocaleString("en-US")}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {forecastPage.forecasts.length > 0 && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Based on recent stock movement trends (linear regression)
+              </p>
+            )}
+            {forecastPage.total > 0 && (
+              <Pager
+                offset={forecastOffset}
+                total={forecastPage.total}
+                onOffsetChange={setForecastOffset}
+              />
+            )}
+          </div>
+        )},
+
+      {activeTab === "forecast" && forecastPage === null && (
         <div className="mt-6 p-4 bg-muted rounded">
           <p className="text-sm">
             <span className="animate-pulse h-4 w-6 rounded mr-2" />
@@ -424,8 +508,7 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Recommendations section */}
-      {recommendationPage !== null ? (
+      {activeTab === "recommendations" && recommendationPage !== null && (
         <div className="mt-6">
           <h3 className="font-medium text-sm mb-3">Recommendations</h3>
           {recommendationPage.recommendations.length > 0 ? (
@@ -464,7 +547,9 @@ export function DashboardPage() {
             <p className="text-sm text-muted-foreground">No urgent restock needed</p>
           )}
         </div>
-      ) : (
+      )}
+
+      {activeTab === "recommendations" && recommendationPage === null && (
         <div className="mt-6 p-4 bg-muted rounded">
           <p className="text-sm">
             <span className="animate-pulse h-4 w-6 rounded mr-2" />
@@ -473,8 +558,7 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Stock dynamics chart (P14) */}
-      {daily !== null && daily.length > 0 && (
+      {activeTab === "dynamics" && daily !== null && daily.length > 0 && (
         <div className="mt-6">
           <h3 className="font-medium text-sm mb-3">Stock dynamics (30 days)</h3>
           <div className="h-64 w-full rounded border bg-card p-2">
@@ -492,68 +576,69 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Recent movements section */}
-      {movementPage !== null ? (
-        <div className="mt-6">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-medium text-sm">Recent movements</h3>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void downloadMovementsCsv()}
-            >
-              <DownloadIcon />
-              Export CSV
-            </Button>
-          </div>
-          {movementPage.items.length > 0 ? (
-            <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableCell className="text-left product">Product</TableCell>
-                    <TableCell className="text-center in_out">Flow</TableCell>
-                    <TableCell className="text-right qty">Qty</TableCell>
-                    <TableCell className="text-left reason">Reason</TableCell>
-                    <TableCell className="text-right timestamp">When</TableCell>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {movementPage.items.map((m) => (
-                    <TableRow key={m.movement_id}>
-                      <TableCell className="text-left product">{m.product_name}</TableCell>
-                      <TableCell className="text-center in_out">
-                        {m.in_out === "in" ? "In" : "Out"}
-                      </TableCell>
-                      <TableCell className="text-right qty">{formatQty(m.qty_delta)}</TableCell>
-                      <TableCell className="text-left reason">{m.reason || "—"}</TableCell>
-                      <TableCell className="text-right timestamp">
-                        {formatTimestamp(m.timestamp)}
-                      </TableCell>
+      {activeTab === "movements" && movementPage !== null && (
+          <div className="mt-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-medium text-sm">Recent movements</h3>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void downloadMovementsCsv()}
+              >
+                <DownloadIcon />
+                Export CSV
+              </Button>
+            </div>
+            {movementPage.items.length > 0 ? (
+              <>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableCell className="text-left product">Product</TableCell>
+                      <TableCell className="text-center in_out">Flow</TableCell>
+                      <TableCell className="text-right qty">Qty</TableCell>
+                      <TableCell className="text-left reason">Reason</TableCell>
+                      <TableCell className="text-right timestamp">When</TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {movementPage.total > 0 && (
-                <Pager
-                  offset={movementOffset}
-                  total={movementPage.total}
-                  onOffsetChange={setMovementOffset}
-                />
-              )}
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">No stock movements recorded yet</p>
-          )}
-        </div>
-      ) : (
-        <div className="mt-6 p-4 bg-muted rounded">
-          <p className="text-sm">
-            <span className="animate-pulse h-4 w-6 rounded mr-2" />
-            Recent movements unavailable
-          </p>
-        </div>
-      )}
+                  </TableHeader>
+                  <TableBody>
+                    {movementPage.items.map((m) => (
+                      <TableRow key={m.movement_id}>
+                        <TableCell className="text-left product">{m.product_name}</TableCell>
+                        <TableCell className="text-center in_out">
+                          {m.in_out === "in" ? "In" : "Out"}
+                        </TableCell>
+                        <TableCell className="text-right qty">{formatQty(m.qty_delta)}</TableCell>
+                        <TableCell className="text-left reason">{m.reason || "—"}</TableCell>
+                        <TableCell className="text-right timestamp">
+                          {formatTimestamp(m.timestamp)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {movementPage.total > 0 && (
+                  <Pager
+                    offset={movementOffset}
+                    total={movementPage.total}
+                    onOffsetChange={setMovementOffset}
+                  />
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">No stock movements recorded yet</p>
+            )}
+          </div>
+        )}
+
+        {activeTab === "movements" && movementPage === null && (
+          <div className="mt-6 p-4 bg-muted rounded">
+            <p className="text-sm">
+              <span className="animate-pulse h-4 w-6 rounded mr-2" />
+              Recent movements unavailable
+            </p>
+          </div>
+        )}
     </div>
   )
 }
