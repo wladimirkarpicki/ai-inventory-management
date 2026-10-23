@@ -762,8 +762,13 @@ def dashboard_stats(
     ).fetchone()[0]
 
     low_stock_alerts = db.execute(  # type: ignore[index]  # single-row query by construction
-        "SELECT id, name, quantity FROM products WHERE quantity < %s "
-        "ORDER BY quantity ASC NULLS LAST, name ASC LIMIT %s",
+        """
+        SELECT DISTINCT ON (name) id, name, quantity
+        FROM products
+        WHERE quantity < %s
+        ORDER BY name ASC, quantity ASC NULLS LAST
+        LIMIT %s
+        """,
         (LOW_STOCK_THRESHOLD, LOW_STOCK_ALERTS_LIMIT),
     ).fetchall()
 
