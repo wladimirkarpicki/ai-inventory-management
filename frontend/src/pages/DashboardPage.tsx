@@ -15,6 +15,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -43,7 +44,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableHeader, TableRow, TableCell, TableBody } from "@/components/ui/table"
 
-const PAGE_LIMIT = 10
+const PAGE_LIMIT = 15
 
 async function downloadMovementsCsv() {
   const token = getToken()
@@ -98,6 +99,13 @@ function formatTimestamp(iso: string): string {
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString("en-US")
 }
 
+function formatDayTick(iso: string): string {
+  const date = new Date(iso)
+  return Number.isNaN(date.getTime())
+    ? iso
+    : date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
+
 function Pager({
   offset,
   total,
@@ -150,6 +158,7 @@ export function DashboardPage() {
   const [movementOffset, setMovementOffset] = useState(0)
 
   const [daily, setDaily] = useState<DailyMovement[] | null>(null)
+  const [dynamicsDays, setDynamicsDays] = useState(30)
 
   useEffect(() => {
     api<Stats>("/api/dashboard/stats")
@@ -158,22 +167,6 @@ export function DashboardPage() {
         setError(err instanceof Error ? err.message : "Failed to load.")
       )
   }, [])
-
-  useEffect(() => {
-    if (activeTab !== "dynamics") return
-
-    let cancelled = false
-    api<{ items: DailyMovement[] }>("/api/movements/daily")
-      .then((data) => {
-        if (!cancelled) setDaily(data.items)
-      })
-      .catch(() => {
-        if (!cancelled) setDaily([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [activeTab])
 
   useEffect(() => {
     if (activeTab !== "forecast") return
@@ -232,7 +225,7 @@ export function DashboardPage() {
     if (activeTab !== "dynamics") return
 
     let cancelled = false
-    api<{ items: DailyMovement[] }>("/api/movements/daily")
+    api<{ items: DailyMovement[] }>(`/api/movements/daily?days=${dynamicsDays}`)
       .then((data) => {
         if (!cancelled) setDaily(data.items)
       })
@@ -242,7 +235,11 @@ export function DashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [activeTab])
+  }, [activeTab, dynamicsDays])
+
+  const dynamicsTotalIn = daily?.reduce((sum, d) => sum + d.in_qty, 0) ?? 0
+  const dynamicsTotalOut = daily?.reduce((sum, d) => sum + d.out_qty, 0) ?? 0
+  const dynamicsNet = dynamicsTotalIn - dynamicsTotalOut
 
   if (error) {
     return (
@@ -431,11 +428,6 @@ export function DashboardPage() {
           >
             <TriangleAlertIcon className="size-4" />
             Low stock
-            {stats.low_stock > 0 && (
-              <span className="rounded-full bg-destructive/15 px-1.5 text-xs font-semibold text-destructive tabular-nums">
-                {stats.low_stock}
-              </span>
-            )}
           </button>
         </nav>
       </div>
@@ -540,15 +532,68 @@ export function DashboardPage() {
 
       {activeTab === "dynamics" && daily !== null && daily.length > 0 && (
         <div className="mt-6">
-          <div className="h-64 w-full rounded border bg-card p-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span>
+                Units in:{" "}
+                <strong className="text-foreground tabular-nums">
+                  {dynamicsTotalIn.toLocaleString("en-US")}
+                </strong>
+              </span>
+              <span>
+                Units out:{" "}
+                <strong className="text-foreground tabular-nums">
+                  {dynamicsTotalOut.toLocaleString("en-US")}
+                </strong>
+              </span>
+              <span>
+                Net:{" "}
+                <strong
+                  className={
+                    dynamicsNet >= 0
+                      ? "text-foreground tabular-nums"
+                      : "text-destructive tabular-nums"
+                  }
+                >
+                  {formatQty(dynamicsNet)}
+                </strong>
+              </span>
+              <span>
+                Active days:{" "}
+                <strong className="text-foreground tabular-nums">
+                  {daily.length} / {dynamicsDays}
+                </strong>
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              {[30, 90].map((d) => (
+                <Button
+                  key={d}
+                  variant={dynamicsDays === d ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setDynamicsDays(d)}
+                >
+                  {d} days
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div className="h-[600px] w-full rounded border bg-card p-2">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={daily} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <BarChart data={daily} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="date" fontSize={11} tickLine={false} />
-                <YAxis fontSize={11} width={32} allowDecimals={false} />
+                <XAxis
+                  dataKey="date"
+                  fontSize={11}
+                  tickLine={false}
+                  interval="preserveStartEnd"
+                  tickFormatter={formatDayTick}
+                />
+                <YAxis fontSize={11} width={40} allowDecimals={false} />
                 <Tooltip />
-                <Bar dataKey="in_qty" name="Units in" fill="#22c55e" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="out_qty" name="Units out" fill="#ef4444" radius={[3, 3, 0, 0]} />
+                <Legend />
+                <Bar dataKey="in_qty" name="Units in" fill="#22c55e" radius={[3, 3, 0, 0]} maxBarSize={28} />
+                <Bar dataKey="out_qty" name="Units out" fill="#ef4444" radius={[3, 3, 0, 0]} maxBarSize={28} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -557,7 +602,7 @@ export function DashboardPage() {
 
       {activeTab === "dynamics" && daily !== null && daily.length === 0 && (
         <p className="mt-6 text-sm text-muted-foreground">
-          No stock movements recorded in the last 30 days
+          No stock movements recorded in the last {dynamicsDays} days
         </p>
       )}
 

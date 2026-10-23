@@ -1,6 +1,6 @@
 # Agent Plan — inventory-management-system
 Last updated: 2026-10-23 17:40
-Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-10-23 17:40 (= Last updated глобала при последней сверке)
+Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-10-22 18:47 (= Last updated глобала при последней сверке)
 Роль: проектный агент (inventory-management-system) — работа с кодинг-сабагентами; задачи — от главного агента (Team Lead) или пользователя.
 
 ## Status
