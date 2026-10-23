@@ -138,7 +138,7 @@ export function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const [activeTab, setActiveTab] = useState<"forecast" | "recommendations" | "dynamics" | "movements">("forecast")
+  const [activeTab, setActiveTab] = useState<"forecast" | "recommendations" | "dynamics" | "movements" | "lowstock">("forecast")
 
   const [forecastPage, setForecastPage] = useState<ForecastPage | null>(null)
   const [forecastOffset, setForecastOffset] = useState(0)
@@ -364,42 +364,6 @@ export function DashboardPage() {
         ))}
       </div>
 
-      {/* Low stock alerts below the cards grid (top-10 from stats) */}
-      {stats.low_stock_alerts.length > 0 ? (
-        <div className="mt-4 p-3 bg-muted/50 rounded border">
-          <h3 className="font-medium text-sm mb-2">Low stock alerts</h3>
-          <p className="text-xs text-muted-foreground">
-            Below threshold ({stats.low_stock_threshold})
-          </p>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableCell className="text-left product">Product</TableCell>
-                <TableCell className="text-right qty">Remaining</TableCell>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {stats.low_stock_alerts.map((alert) => (
-                <TableRow key={alert.product_id}>
-                  <TableCell className="text-left product">{alert.name}</TableCell>
-                  <TableCell className="text-right qty">{alert.remaining_qty.toLocaleString("en-US")}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          {stats.low_stock > stats.low_stock_alerts.length && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              …and {(stats.low_stock - stats.low_stock_alerts.length).toLocaleString("en-US")} more
-              below threshold
-            </p>
-          )}
-        </div>
-      ) : (
-        <p className="mt-4 text-sm text-muted-foreground" style={{ margin: "0 auto" }}>
-          All products sufficiently stocked
-        </p>
-      )}
-
       {/* Tab navigation */}
       <div className="mt-6 border-b">
         <nav className="flex gap-4 overflow-x-auto px-4" role="tablist" aria-label="Dashboard sections">
@@ -455,13 +419,30 @@ export function DashboardPage() {
             <HistoryIcon className="size-4" />
             Recent movements
           </button>
+          <button
+            role="tab"
+            aria-selected={activeTab === "lowstock"}
+            onClick={() => setActiveTab("lowstock")}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+              activeTab === "lowstock"
+                ? "border-primary text-primary"
+                : "text-muted-foreground hover:text-foreground hover:border-muted"
+            }`}
+          >
+            <TriangleAlertIcon className="size-4" />
+            Low stock
+            {stats.low_stock > 0 && (
+              <span className="rounded-full bg-destructive/15 px-1.5 text-xs font-semibold text-destructive tabular-nums">
+                {stats.low_stock}
+              </span>
+            )}
+          </button>
         </nav>
       </div>
 
       {/* Tab panels */}
       {activeTab === "forecast" && forecastPage !== null && (
         <div className="mt-6">
-          <h3 className="font-medium text-sm mb-3">Forecast</h3>
           <Table>
             <TableHeader>
               <TableRow>
@@ -497,7 +478,7 @@ export function DashboardPage() {
               />
             )}
           </div>
-        )},
+        )}
 
       {activeTab === "forecast" && forecastPage === null && (
         <div className="mt-6 p-4 bg-muted rounded">
@@ -510,7 +491,6 @@ export function DashboardPage() {
 
       {activeTab === "recommendations" && recommendationPage !== null && (
         <div className="mt-6">
-          <h3 className="font-medium text-sm mb-3">Recommendations</h3>
           {recommendationPage.recommendations.length > 0 ? (
             <>
               <Table>
@@ -560,7 +540,6 @@ export function DashboardPage() {
 
       {activeTab === "dynamics" && daily !== null && daily.length > 0 && (
         <div className="mt-6">
-          <h3 className="font-medium text-sm mb-3">Stock dynamics (30 days)</h3>
           <div className="h-64 w-full rounded border bg-card p-2">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={daily} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -576,10 +555,15 @@ export function DashboardPage() {
         </div>
       )}
 
+      {activeTab === "dynamics" && daily !== null && daily.length === 0 && (
+        <p className="mt-6 text-sm text-muted-foreground">
+          No stock movements recorded in the last 30 days
+        </p>
+      )}
+
       {activeTab === "movements" && movementPage !== null && (
           <div className="mt-6">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-medium text-sm">Recent movements</h3>
+            <div className="flex justify-end mb-3">
               <Button
                 variant="outline"
                 size="sm"
@@ -639,6 +623,42 @@ export function DashboardPage() {
             </p>
           </div>
         )}
+
+      {activeTab === "lowstock" && (
+        stats.low_stock_alerts.length > 0 ? (
+          <div className="mt-6 p-3 bg-muted/50 rounded border">
+            <p className="text-xs text-muted-foreground mb-2">
+              Below threshold ({stats.low_stock_threshold}) — top {stats.low_stock_alerts.length} most depleted
+            </p>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableCell className="text-left product">Product</TableCell>
+                  <TableCell className="text-right qty">Remaining</TableCell>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {stats.low_stock_alerts.map((alert) => (
+                  <TableRow key={alert.product_id}>
+                    <TableCell className="text-left product">{alert.name}</TableCell>
+                    <TableCell className="text-right qty">{alert.remaining_qty.toLocaleString("en-US")}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {stats.low_stock > stats.low_stock_alerts.length && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                …and {(stats.low_stock - stats.low_stock_alerts.length).toLocaleString("en-US")} more
+                below threshold
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="mt-6 text-sm text-muted-foreground">
+            All products sufficiently stocked
+          </p>
+        )
+      )}
     </div>
   )
 }
