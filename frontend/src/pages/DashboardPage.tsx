@@ -28,6 +28,7 @@ import {
   getToken,
   type DailyMovement,
   type ForecastPage,
+  type LowStockPage,
   type MovementPage,
   type RecommendationPage,
   type Stats,
@@ -160,6 +161,9 @@ export function DashboardPage() {
   const [daily, setDaily] = useState<DailyMovement[] | null>(null)
   const [dynamicsDays, setDynamicsDays] = useState(30)
 
+  const [lowStockPage, setLowStockPage] = useState<LowStockPage | null>(null)
+  const [lowStockOffset, setLowStockOffset] = useState(0)
+
   useEffect(() => {
     api<Stats>("/api/dashboard/stats")
       .then(setStats)
@@ -236,6 +240,23 @@ export function DashboardPage() {
       cancelled = true
     }
   }, [activeTab, dynamicsDays])
+
+  useEffect(() => {
+    if (activeTab !== "lowstock") return
+
+    let cancelled = false
+    api<LowStockPage>(`/api/low-stock?limit=${PAGE_LIMIT}&offset=${lowStockOffset}`)
+      .then((data) => {
+        if (!cancelled) setLowStockPage(data)
+      })
+      .catch((err) => {
+        console.error("Low stock error:", err)
+        if (!cancelled) setLowStockPage(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [lowStockOffset, activeTab])
 
   const dynamicsTotalIn = daily?.reduce((sum, d) => sum + d.in_qty, 0) ?? 0
   const dynamicsTotalOut = daily?.reduce((sum, d) => sum + d.out_qty, 0) ?? 0
@@ -669,40 +690,52 @@ export function DashboardPage() {
           </div>
         )}
 
-      {activeTab === "lowstock" && (
-        stats.low_stock_alerts.length > 0 ? (
-          <div className="mt-6 p-3 bg-muted/50 rounded border">
-            <p className="text-xs text-muted-foreground mb-2">
-              Below threshold ({stats.low_stock_threshold}) — top {stats.low_stock_alerts.length} most depleted
-            </p>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableCell className="text-left product">Product</TableCell>
-                  <TableCell className="text-right qty">Remaining</TableCell>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {stats.low_stock_alerts.map((alert) => (
-                  <TableRow key={alert.product_id}>
-                    <TableCell className="text-left product">{alert.name}</TableCell>
-                    <TableCell className="text-right qty">{alert.remaining_qty.toLocaleString("en-US")}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            {stats.low_stock > stats.low_stock_alerts.length && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                …and {(stats.low_stock - stats.low_stock_alerts.length).toLocaleString("en-US")} more
-                below threshold
-              </p>
-            )}
-          </div>
-        ) : (
-          <p className="mt-6 text-sm text-muted-foreground">
-            All products sufficiently stocked
+      {activeTab === "lowstock" && lowStockPage !== null && (
+        <div className="mt-6 p-3 bg-muted/50 rounded border">
+          <p className="text-xs text-muted-foreground mb-2">
+            Below threshold ({stats.low_stock_threshold}) — the most depleted first
           </p>
-        )
+          {lowStockPage.items.length > 0 ? (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableCell className="text-left product">Product</TableCell>
+                    <TableCell className="text-right qty">Remaining</TableCell>
+                    <TableCell className="text-right restock">Reorder point</TableCell>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {lowStockPage.items.map((item) => (
+                    <TableRow key={item.product_id}>
+                      <TableCell className="text-left product">{item.name}</TableCell>
+                      <TableCell className="text-right qty">{item.remaining_qty.toLocaleString("en-US")}</TableCell>
+                      <TableCell className="text-right restock">{item.reorder_point.toLocaleString("en-US")}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {lowStockPage.total > 0 && (
+                <Pager
+                  offset={lowStockOffset}
+                  total={lowStockPage.total}
+                  onOffsetChange={setLowStockOffset}
+                />
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">All products sufficiently stocked</p>
+          )}
+        </div>
+      )}
+
+      {activeTab === "lowstock" && lowStockPage === null && (
+        <div className="mt-6 p-4 bg-muted rounded">
+          <p className="text-sm">
+            <span className="animate-pulse h-4 w-6 rounded mr-2" />
+            Low stock list unavailable
+          </p>
+        </div>
       )}
     </div>
   )

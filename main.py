@@ -1157,6 +1157,48 @@ def movements_daily(
     return {"items": items, "days": days}
 
 
+@app.get("/api/low-stock")
+def low_stock_list(
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    """
+    Every product below the low-stock threshold, paginated (P19), the
+    most depleted first. DISTINCT ON guards against same-name rows even
+    though migrations/003 enforces uniqueness at the database level;
+    reorder_point rides along so the UI can show remaining vs threshold.
+    """
+
+    inner = (
+        "SELECT DISTINCT ON (brand_id, LOWER(name)) id, name, quantity, reorder_point "
+        "FROM products WHERE quantity < %s "
+        "ORDER BY brand_id, LOWER(name), quantity ASC NULLS LAST"
+    )
+    rows = db.execute(
+        f"SELECT id, name, quantity, reorder_point FROM ({inner}) d "
+        "ORDER BY quantity ASC NULLS LAST, name ASC LIMIT %s OFFSET %s",
+        (LOW_STOCK_THRESHOLD, limit, offset),
+    ).fetchall()
+    total = db.execute(  # type: ignore[index]  # single-row query by construction
+        f"SELECT COUNT(*) FROM ({inner}) d", (LOW_STOCK_THRESHOLD,)
+    ).fetchone()[0]
+
+    return {
+        "items": [
+            {
+                "product_id": r[0],
+                "name": r[1],
+                "remaining_qty": r[2] or 0,
+                "reorder_point": r[3],
+            }
+            for r in rows
+        ],
+        "total": total,
+    }
+
+
 def _extract_json_array(content: str) -> str:
     """
     Free-pool reasoning models often prepend Chain-of-Thought prose or a
