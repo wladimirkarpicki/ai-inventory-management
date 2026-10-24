@@ -3,34 +3,51 @@
 [![Tests](https://github.com/wladimirkarpicki/inventory-management-system/actions/workflows/tests.yml/badge.svg)](https://github.com/wladimirkarpicki/inventory-management-system/actions/workflows/tests.yml)
 [![Security](https://github.com/wladimirkarpicki/inventory-management-system/actions/workflows/security.yml/badge.svg)](https://github.com/wladimirkarpicki/inventory-management-system/actions/workflows/security.yml)
 
-A web-based inventory management application built with Python, FastAPI, PostgreSQL, and a React SPA frontend.
+A web-based inventory management application built with Python, FastAPI, PostgreSQL, and a React SPA frontend — with AI-powered demand forecasting, purchase-order management, and movement analytics.
 
 ## Features
 
+### Core inventory
 - User authentication — all pages require sign-in, with a first-run setup for the initial admin account
 - Admin-only user management: create users, change roles, reset passwords, delete accounts — with server-side safety rules
-- Dashboard with live inventory statistics
-- View, search, and sort products; CSV export of the inventory
-- Add, edit, and delete products (brand, name, price, quantity)
+- View, search, sort, and filter products; CSV export of the inventory
+- Add, edit, and delete products — with per-product **reorder point** and **supplier lead time**
+- One product per (brand, case-insensitive name) — enforced at the database level
 - Manage brands: add, edit, and delete — brands that still have products cannot be deleted
-- Server-side validation with friendly error messages
-- Friendly error page when the database is unavailable
-- One PostgreSQL connection per request
-- Automated test suite (pytest) with continuous integration on GitHub Actions
+- Quick filter: **"Below reorder point"** shows only items whose stock has dipped under their threshold
+- Clickable sortable column headers (direction arrows, per-column toggling)
+- CSV bulk import with dedup, validation, and per-row error reporting
+- Server-side validation with friendly error messages; friendly error page when the database is unavailable
 - Login rate limiting, token invalidation for deleted accounts, and last-admin / self-delete protection
+
+### Smart forecasting & recommendations
+- **Linear-regression demand forecast** per product over a 30-day window — days until stockout and recommended restock quantity
+- **AI refinement** (optional): rows refined by an LLM carry an `AI` badge; every failure falls back to the regression values, so the forecast never depends on the LLM being up
+- Restock formula accounts for each product's lead time: `needed = daily sales rate × lead_time × 1.1` — with the reorder point as a floor
+- **Recommendations** list the most urgent restock candidates — flagged with **open purchase orders** so the same item isn't ordered twice
+- **Forecast cache** (10-minute TTL) — recomputes only on expiry or on any product write
+
+### Purchase orders
+- Full lifecycle: **ordered → received | cancelled** — with expected-arrival dates derived from each product's lead time
+- Receiving an order adds the quantity to stock **and** records a matching `purchase_order` movement in the same transaction — Recent movements, Dynamics, and the forecast all update together
+- One-click **Order** buttons from the Recommendations and Low-stock tabs
+- Overdue orders highlighted in red (expected date in the past)
+- New-order dialog with product typeahead
+
+### Movement analytics
+- Every real quantity change (create, edit, CSV import, order receipt) automatically writes a `stock_movements` row — signed quantities, single transaction
+- **Dashboard tabs**: Forecast · Recommendations · Stock dynamics · Recent movements · Low stock · Orders
+- **Stock dynamics**: in/out bar chart with a 7-day rolling-average consumption line; **Top movers** leaderboards (biggest restocks / biggest consumption); **Daily detail** table with per-day net and running cumulative balance; 30/90-day period switcher; KPI strip (units in/out, net, avg daily out, peak day, active days)
+- **Low stock** tab: all below-threshold products, paginated, the most depleted first, with reorder point shown
+- **CSV export** of the full movement history
+- Paginated API for every list endpoint (limit/offset/total)
 
 ## Technologies
 
-- Python 3
-- FastAPI
-- PostgreSQL
-- psycopg 3
-- PyJWT (bearer tokens, 12-hour expiry)
-- React 19, TypeScript, Vite
-- Tailwind CSS v4, shadcn/ui components
-- react-router-dom
-- python-dotenv
-- Prometheus metrics via prometheus-fastapi-instrumentator
+- Python 3.13 · FastAPI · PostgreSQL 16 · psycopg 3
+- PyJWT (bearer tokens, 12-hour expiry) · Prometheus metrics
+- React 19 · TypeScript · Vite · Tailwind CSS v4 · shadcn/ui · Recharts
+- NVIDIA Build API (optional, for AI forecast refinement)
 
 ## Installation
 
@@ -82,6 +99,13 @@ python -c "import secrets; print(secrets.token_hex(32))"
 psql -d your_database -f schema.sql
 ```
 
+6. Optional — seed demo data:
+
+```bash
+python -m scripts.seed_demo_data            # ~1000 products across 20 brands
+python -m scripts.seed_movements --wipe     # 30 days of realistic movement history
+```
+
 ## Run
 
 Backend:
@@ -130,7 +154,7 @@ The admin can manage accounts from the **Users** page (visible in the navigation
 
 Every signed-in user can change their own password via **Change Password** in the navigation; that flow always requires the current password, while the admin reset does not.
 
-Two safety rules are enforced server-side: the last remaining admin cannot be demoted or deleted (so the installation can never lock itself out of administration), and you cannot delete the account you are currently signed in with. Regular users can work with products and brands but receive 403 on all account management pages.
+Two safety rules are enforced server-side: the last remaining admin cannot be demoted or deleted (so the installation can never lock itself out of administration), and you cannot delete the account you are currently signed in with. Regular users can work with products, brands, and orders but receive 403 on all account management pages.
 
 ## Security
 
@@ -150,7 +174,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-It covers authentication and the first-run setup flow, user management with all of its safety rules, product and brand CRUD with validation, search (including LIKE-wildcard escaping), sorting, pagination, CSV export, the dashboard statistics, and the health/readiness/metrics endpoints (`tests/test_api.py`). Every test starts from a clean database, so tests can run in any order.
+It covers authentication and the first-run setup flow, user management with all of its safety rules, product and brand CRUD with validation and uniqueness, search (including LIKE-wildcard escaping), sorting, pagination, the low-stock filter, CSV export and import, the dashboard statistics, movement analytics (daily aggregates, top movers, forecasts with cache/LLM fallback), purchase orders (create, list, receive, cancel, transitions), and the health/readiness/metrics endpoints. Every test starts from a clean database, so tests can run in any order.
 
 ```bash
 python -m pytest --cov=. --cov-report=term     # coverage report (~90%)
@@ -171,8 +195,9 @@ pre-commit install
 - `main.py` — FastAPI JSON backend consumed by the SPA
 - `database.py` — reads `.env` and builds the PostgreSQL connection string
 - `schema.sql` — database schema for a fresh installation
-- `frontend/` — React 19 + TypeScript SPA (Vite, Tailwind CSS v4, shadcn/ui components)
-- `tests/` — pytest test suite (FastAPI API)
+- `migrations/` — incremental schema changes (002 reorder points, 003 dedup + unique index, 004 orders)
+- `frontend/` — React 19 + TypeScript SPA (Vite, Tailwind CSS v4, shadcn/ui, Recharts)
+- `tests/` — pytest test suite (FastAPI API, analytics, orders)
 - `requirements.txt` — runtime dependencies
 - `requirements-dev.txt` — development dependencies (pytest, coverage, linters)
 - `pytest.ini` — pytest configuration
