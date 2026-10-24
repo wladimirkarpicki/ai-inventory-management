@@ -1,12 +1,12 @@
 # Agent Plan — inventory-management-system
-Last updated: 2026-10-23 21:05
-Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-10-22 18:47 (= Last updated глобала при последней сверке)
+Last updated: 2026-10-24 13:30
+Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-10-24 13:00 (= Last updated глобала при последней сверке)
 Роль: проектный агент (inventory-management-system) — работа с кодинг-сабагентами; задачи — от главного агента (Team Lead) или пользователя.
 
 ## Status
-- Active focus: P17 (UI polish v2) слит в main (de19e50), контейнер пересобирается; кандидаты дальше: чистка дублей товаров в БД, полный low-stock пейджин, UX Products
+- Active focus: P18 (дедуп+UNIQUE) и P19 (low-stock пагинация) слиты в main (5800a00, af21660); контейнер пересобирается с новым бекендом; далее по списку: P20 Products UX → P21 Forecast-бейджи → P22 UI-тесты
 - Blocked: —
-- Risks: ДУБЛИКАТЫ ТОВАРОВ В БД — root cause «дубликатов в alerts»: seed_demo_data запускался дважды без дедупа (~2004 строк, каждое имя x2); сейчас маскируется DISTINCT ON (name) в low_stock_alerts, но список товаров/прогноз считают дубли; кандидат в задачи: чистка дубликатов + UNIQUE(brand_id, lower(name)); Docker daemon нестабилен (падал 3+ раз за сутки, восстановление docker desktop start)
+- Risks: дубли товаров ИСПРАВЛЕНЫ (P18: 2008→1004, UNIQUE(brand_id, lower(name))); бэкап до дедупа — backup_before_dedupe.sql (не в git); Docker data disk чинился e2fsck 23.10 — при повторных падениях демона см. ENVIRONMENT.md
 
 ## Tasks
 | ID | Task | Status | Branch | AC / Verification | Evidence |
@@ -27,6 +27,24 @@ Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-1
 | P15 | Dashboard tabs UI | ✅ merged (14ba179) | feat/dashboard-tabs (ac5e8ba) | 4 таба (Forecast/Rec/Dynamics/Movements), ленивая загрузка, честные тексты | табы в хедере дашборда; lazy loading по табам; честный текст «forecast service unreachable»; pytest 78/0, ruff 0, pnpm build OK | frontend/src/pages/DashboardPage.tsx (tabs, lazy loading, ARIA), main.py (нет изменений), tests (нет новых — ленивая загрузка покрыта существующими тестами) |
 | P16 | Low stock таб + UI polish дашборда | ✅ merged (1616e9e) | feat/dashboard-ui-polish (313c61b) | pytest 0 failed; pnpm build OK | 5-й таб Low stock с бейджем количества (секция над табами удалена); убраны дубль-h3 внутри всех панелей; фикс stray-запятой после forecast-панели (рендерилась как лишний элемент); empty-state для Dynamics; low_stock_alerts: сабквери-дедуп + ORDER BY quantity ASC (восстановлен порядок срочности, сломанный c0571b2 — поймал тест capped_at_top10); pytest 78/0, ruff 0, pnpm build OK |
 | P17 | UI polish v2 | ✅ merged (de19e50) | feat/dashboard-ui-polish-2 (1b28502) | pnpm build OK | убран theme-toggle из хедера (найден «stepper ▲▼» — иконка ☀ в мелком размере); убран бейдж-счётчик с таба Low stock; пагинация 15/таб; Stock dynamics 600px + сводка (in/out/net/active days) + период 30/90 + Legend + короткие даты; фикс дубля daily-useEffect (двойной fetch) |
+| P18 | Чистка дублей товаров + UNIQUE(brand, lower(name)) | ✅ merged (5800a00) | feat/dedupe-products (1f5858d) | `pytest` → 0 failed; `GET /api/products` → 1004 items | миграция 003 (DELETE лузеров + их движения + индекс); schema.sql + сид ON CONFLICT; API create/update → 400 при дубле; live: 2008→1004 товаров, low_stock 98→49, dup-групп 0; pytest 81/0, ruff 0 |
+| P19 | Low stock: полная пагинация | ✅ merged (af21660) | feat/low-stock-pagination (b9ee3c2) | `GET /api/low-stock?limit=5&offset=10` → 2 items, total 12 | GET /api/low-stock (qty ASC, reorder_point в ответе); таб Low stock → Pager + колонка Reorder point; +3 теста; pytest 84/0, ruff 0, pnpm build OK |
+
+## Task details (нетривиальные)
+
+### P18 — Чистка дублей + UNIQUE(brand, lower(name))
+Goal: убрать задвоенные товары (двойной сид) и запретить дубли на уровне БД.
+Scope: migrations/003 (DELETE лузер-строк + их stock_movements, UNIQUE-индекс), schema.sql, seed ON CONFLICT DO NOTHING, API create/update → 400 при (brand, lower(name))-коллизии, 3 теста.
+AC: `pytest` → 0 failed; после live-миграции `SELECT COUNT(*) FROM products` = 1004, dup-групп = 0.
+Verification: `python -m pytest tests/` → 81 passed; `docker compose exec db psql ... -c "SELECT COUNT(*) FROM products"` → 1004.
+Constraints: деструктивная миграция — подтверждена пользователем (P18 → P19 по списку); бэкап pg_dump до применения; keeper = строка с меньшим id (свой movement-хвост сохраняется).
+
+### P19 — Low stock: полная пагинация
+Goal: таб Low stock показывает ВСЕ позиции ниже порога с пагинацией (было top-10 из stats).
+Scope: GET /api/low-stock (limit/offset, qty ASC, DISTINCT ON (brand, lower(name)), reorder_point в items); фронт: состояние lowStockPage/Offset, эффект по табу, колонка Reorder point, Pager; +3 теста.
+AC: `GET /api/low-stock?limit=5&offset=10` при 12 позициях → 2 items, total 12; `pytest` → 0 failed.
+Verification: `python -m pytest tests/test_analytics.py` → все green; `pnpm build` → exit 0.
+Constraints: эндпоинт размещён после analytics-констант (Query-дефолт вычисляется при декорации); stats.low_stock_alerts остаётся для совместимости тестов.
 
 ## Decisions
 - 2026-10-18 — v2-шаблон: процессные секции вынести в глобальный AGENTS.md, план хранит состояние. (Глобал создан 2026-10-19 — путь в Process-строке шапки; процессные секции ниже временные, убрать при ближайшей сверке Synced.)
@@ -76,4 +94,6 @@ Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-1
 - ✅ P15 (2026-10-23) — Dashboard tabs UI: 4 таба (Forecast, Recommendations, Stock dynamics, Recent movements) с ленивой загрузкой, честные тексты, ARIA-доступность; pytest 78/0, ruff 0, pnpm build OK (feat/dashboard-tabs, ac5e8ba)
 - ✅ P16 (2026-10-23) — Low stock таб + UI polish: 5 табов, бейдж количества, дедуп-h3, фикс запятой, empty-state Dynamics, порядок alerts quantity ASC (pytest 78/0; merged 1616e9e)
 - ✅ P17 (2026-10-23) — UI polish v2: без theme-toggle, пагинация 15, большой информативный Stock dynamics (600px, сводка, 30/90 дней, легенда); merged de19e50
+- ✅ P18 (2026-10-24) — дедуп товаров: миграция 003 + UNIQUE(brand_id, lower(name)) + API 400 при дубле; live 2008→1004, low_stock 98→49 (merged 5800a00)
+- ✅ P19 (2026-10-24) — Low stock: /api/low-stock с limit/offset + Reorder point в табе; pytest 84/0 (merged af21660)
 - ✅ LIVE SMOKE P10–P14 (2026-10-22 19:45, lead, task-6): rebuild после падения демона (docker desktop start); /api/ready 200; миграция 002 в контейнерной БД (reorder_point=10/lead_time_days=7); /api/products — оба поля в items; forecast ×2 байт-идентичны за 0.0s, в логах ровно один openrouter: refining (модель openrouter/free) → «failed: response was not a JSON array — regression fallback» (free-pool лотерея, регрессия сохранена) — P11-кэш-хит доказан; /api/movements/daily 200 (29 items); /api/export/movements.csv 200 text/csv attachment (33 строки); все 6 UI-строк в бандле (Reorder point, Lead time (days), Export CSV, Stock dynamics (30 days), Units in/out); smoke-юзер удалён; finding F1 задокументирован в Risks
