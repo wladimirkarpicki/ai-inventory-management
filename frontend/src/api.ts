@@ -181,3 +181,17 @@ export interface ImportResult {
   skipped: ImportRowIssue[]
   errors: ImportRowIssue[]
 }
+
+// ------------------------------------------------------------------ low stock (P19)
+
+export interface LowStockRow {
+  product_id: number
+  name: string
+  remaining_qty: number
+  reorder_point: number
+}
+
+export interface LowStockPage {
+  items: LowStockRow[]
+  total: number
+}
