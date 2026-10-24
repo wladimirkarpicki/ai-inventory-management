@@ -54,12 +54,13 @@ def main() -> None:
                 print(f"= brand {brand_name} exists (id={row[0]})")
             brand_id = row[0]
             for name, price in items:
-                conn.execute(
+                cur = conn.execute(
                     "INSERT INTO products (brand_id, name, price, quantity) "
-                    "VALUES (%s, %s, %s, %s)",
+                    "VALUES (%s, %s, %s, %s) "
+                    "ON CONFLICT DO NOTHING",
                     (brand_id, name, price, rng.randint(1, 100)),
                 )
-                inserted += 1
+                inserted += cur.rowcount
             print(f"  -> {len(items)} products for {brand_name}")
         conn.commit()
 
