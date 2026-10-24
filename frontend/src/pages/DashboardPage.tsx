@@ -683,6 +683,7 @@ export function DashboardPage() {
                     <TableCell className="text-right qty">Current</TableCell>
                     <TableCell className="text-right restock">Rec. qty</TableCell>
                     <TableCell className="text-center days">Days empty</TableCell>
+                    <TableCell className="text-right onorder">On order</TableCell>
                     <TableCell className="w-20" />
                   </TableRow>
                 </TableHeader>
@@ -695,11 +696,24 @@ export function DashboardPage() {
                       <TableCell className="text-center days">
                         {formatDays(r.estimated_days_until_empty)}
                       </TableCell>
+                      <TableCell className="text-right onorder">
+                        {r.open_order_qty > 0 ? (
+                          <Badge variant="secondary" title="Already on an open purchase order">
+                            {r.open_order_qty.toLocaleString("en-US")}
+                          </Badge>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">
                         <Button
                           variant="outline"
                           size="sm"
-                          title={`Create a purchase order for ${r.recommended_qty} × ${r.name}`}
+                          title={
+                            r.open_order_qty > 0
+                              ? `Warning: ${r.open_order_qty} already on order. Create another purchase order for ${r.recommended_qty} × ${r.name}`
+                              : `Create a purchase order for ${r.recommended_qty} × ${r.name}`
+                          }
                           onClick={() =>
                             void createOrder(
                               r.product_id,
