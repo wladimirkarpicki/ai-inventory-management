@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   BanknoteIcon,
   BoxesIcon,
@@ -13,9 +13,10 @@ import {
 } from "lucide-react"
 import {
   Bar,
-  BarChart,
   CartesianGrid,
+  ComposedChart,
   Legend,
+  Line,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -32,6 +33,7 @@ import {
   type MovementPage,
   type RecommendationPage,
   type Stats,
+  type TopMovers,
 } from "@/api"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -161,6 +163,8 @@ export function DashboardPage() {
 
   const [daily, setDaily] = useState<DailyMovement[] | null>(null)
   const [dynamicsDays, setDynamicsDays] = useState(30)
+  const [dynamicsView, setDynamicsView] = useState<"flow" | "top" | "daily">("flow")
+  const [topMovers, setTopMovers] = useState<TopMovers | null>(null)
 
   const [lowStockPage, setLowStockPage] = useState<LowStockPage | null>(null)
   const [lowStockOffset, setLowStockOffset] = useState(0)
@@ -243,6 +247,23 @@ export function DashboardPage() {
   }, [activeTab, dynamicsDays])
 
   useEffect(() => {
+    if (activeTab !== "dynamics") return
+
+    let cancelled = false
+    api<TopMovers>(`/api/movements/top?days=${dynamicsDays}`)
+      .then((data) => {
+        if (!cancelled) setTopMovers(data)
+      })
+      .catch((err) => {
+        console.error("Top movers error:", err)
+        if (!cancelled) setTopMovers(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, dynamicsDays])
+
+  useEffect(() => {
     if (activeTab !== "lowstock") return
 
     let cancelled = false
@@ -262,6 +283,33 @@ export function DashboardPage() {
   const dynamicsTotalIn = daily?.reduce((sum, d) => sum + d.in_qty, 0) ?? 0
   const dynamicsTotalOut = daily?.reduce((sum, d) => sum + d.out_qty, 0) ?? 0
   const dynamicsNet = dynamicsTotalIn - dynamicsTotalOut
+  const dynamicsAvgOut =
+    daily && daily.length > 0 ? dynamicsTotalOut / daily.length : 0
+  const dynamicsPeak =
+    daily && daily.length > 0
+      ? daily.reduce((a, b) => (b.out_qty > a.out_qty ? b : a))
+      : null
+
+  // Flow view series: a 7-day rolling average of consumption layered on
+  // top of the daily in/out bars smooths out the day-to-day noise.
+  const flowData = useMemo(() => {
+    const source = daily ?? []
+    return source.map((d, i) => {
+      const window = source.slice(Math.max(0, i - 6), i + 1)
+      const avg = window.reduce((s, x) => s + x.out_qty, 0) / window.length
+      return { ...d, out_avg7: Math.round(avg * 10) / 10 }
+    })
+  }, [daily])
+
+  // Daily-detail rows: net flow per day and the running cumulative
+  // balance (oldest first, as the API returns it).
+  const dailyRows = useMemo(() => {
+    let cumulative = 0
+    return (daily ?? []).map((d) => {
+      cumulative += d.in_qty - d.out_qty
+      return { ...d, net: d.in_qty - d.out_qty, cumulative }
+    })
+  }, [daily])
 
   if (error) {
     return (
@@ -385,7 +433,7 @@ export function DashboardPage() {
 
       {/* Tab navigation */}
       <div className="mt-6 border-b">
-        <nav className="flex gap-4 overflow-x-auto px-4" role="tablist" aria-label="Dashboard sections">
+        <nav className="flex flex-wrap gap-x-4 gap-y-1 px-4" role="tablist" aria-label="Dashboard sections">
           <button
             role="tab"
             aria-selected={activeTab === "forecast"}
@@ -591,6 +639,20 @@ export function DashboardPage() {
                 </strong>
               </span>
               <span>
+                Avg daily out:{" "}
+                <strong className="text-foreground tabular-nums">
+                  {dynamicsAvgOut.toFixed(1)}
+                </strong>
+              </span>
+              {dynamicsPeak && (
+                <span>
+                  Peak day:{" "}
+                  <strong className="text-foreground tabular-nums">
+                    {formatDayTick(dynamicsPeak.date)} ({dynamicsPeak.out_qty})
+                  </strong>
+                </span>
+              )}
+              <span>
                 Active days:{" "}
                 <strong className="text-foreground tabular-nums">
                   {daily.length} / {dynamicsDays}
@@ -610,25 +672,145 @@ export function DashboardPage() {
               ))}
             </div>
           </div>
-          <div className="h-[600px] w-full rounded border bg-card p-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={daily} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey="date"
-                  fontSize={11}
-                  tickLine={false}
-                  interval="preserveStartEnd"
-                  tickFormatter={formatDayTick}
-                />
-                <YAxis fontSize={11} width={40} allowDecimals={false} />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="in_qty" name="Units in" fill="#22c55e" radius={[3, 3, 0, 0]} maxBarSize={28} />
-                <Bar dataKey="out_qty" name="Units out" fill="#ef4444" radius={[3, 3, 0, 0]} maxBarSize={28} />
-              </BarChart>
-            </ResponsiveContainer>
+
+          {/* Dynamics sub-views */}
+          <div className="flex items-center gap-1 mb-3 border-b pb-2">
+            <Button
+              variant={dynamicsView === "flow" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setDynamicsView("flow")}
+            >
+              Flow
+            </Button>
+            <Button
+              variant={dynamicsView === "top" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setDynamicsView("top")}
+            >
+              Top movers
+            </Button>
+            <Button
+              variant={dynamicsView === "daily" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setDynamicsView("daily")}
+            >
+              Daily detail
+            </Button>
           </div>
+
+          {dynamicsView === "flow" && (
+            <div className="h-[600px] w-full rounded border bg-card p-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={flowData} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    fontSize={11}
+                    tickLine={false}
+                    interval="preserveStartEnd"
+                    tickFormatter={formatDayTick}
+                  />
+                  <YAxis fontSize={11} width={40} allowDecimals={false} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="in_qty" name="Units in" fill="#22c55e" radius={[3, 3, 0, 0]} maxBarSize={28} />
+                  <Bar dataKey="out_qty" name="Units out" fill="#ef4444" radius={[3, 3, 0, 0]} maxBarSize={28} />
+                  <Line
+                    type="monotone"
+                    dataKey="out_avg7"
+                    name="7-day avg out"
+                    stroke="#f59e0b"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {dynamicsView === "top" && (
+            topMovers !== null ? (
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-2">Top restocks</p>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableCell className="text-left product">Product</TableCell>
+                        <TableCell className="text-right qty">Units in</TableCell>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {topMovers.top_in.map((item) => (
+                        <TableRow key={item.product_id}>
+                          <TableCell className="text-left product">{item.name}</TableCell>
+                          <TableCell className="text-right qty">
+                            {item.in_qty.toLocaleString("en-US")}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-2">Top consumption</p>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableCell className="text-left product">Product</TableCell>
+                        <TableCell className="text-right qty">Units out</TableCell>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {topMovers.top_out.map((item) => (
+                        <TableRow key={item.product_id}>
+                          <TableCell className="text-left product">{item.name}</TableCell>
+                          <TableCell className="text-right qty">
+                            {item.out_qty.toLocaleString("en-US")}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Top movers unavailable</p>
+            )
+          )}
+
+          {dynamicsView === "daily" && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableCell className="text-left">Date</TableCell>
+                  <TableCell className="text-right">In</TableCell>
+                  <TableCell className="text-right">Out</TableCell>
+                  <TableCell className="text-right">Net</TableCell>
+                  <TableCell className="text-right">Cumulative net</TableCell>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {dailyRows.map((row) => (
+                  <TableRow key={row.date}>
+                    <TableCell className="text-left">{formatDayTick(row.date)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.in_qty}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.out_qty}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <span className={row.net < 0 ? "text-destructive" : ""}>
+                        {formatQty(row.net)}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <span className={row.cumulative < 0 ? "text-destructive" : ""}>
+                        {formatQty(row.cumulative)}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </div>
       )}
 
