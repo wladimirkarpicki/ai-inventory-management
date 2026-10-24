@@ -1025,7 +1025,11 @@ DEFAULT_PAGE_SIZE = 10
 MAX_PAGE_SIZE = 100
 
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
-LLM_TIMEOUT = 45  # gpt-oss-20b needs ~25s for a 10-item page; cold-start headroom
+# gpt-oss-20b: ~25s for 10 items, 50s+ observed for a 15-item page on the
+# free tier — the 90s budget keeps the badge from silently disappearing.
+# The refine runs once per forecast-cache window (10 min), so the cost is
+# one slow request per window; every other forecast call is a cache hit.
+LLM_TIMEOUT = 90
 LLM_GRACE_SECONDS = 5  # daemon-thread join bound = LLM_TIMEOUT + grace (F1 guard)
 LLM_COOLDOWN_SECONDS = 5 * 60
 
