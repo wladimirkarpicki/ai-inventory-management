@@ -51,15 +51,15 @@ export function Layout({ children }: { children: ReactNode }) {
             Inventory
           </Link>
 
-          <nav className="flex items-center gap-1 overflow-x-auto">
+          <nav className="flex flex-wrap items-center gap-1">
             <NavLink to="/" end className={navLinkClass}>
               Dashboard
             </NavLink>
-            <NavLink to="/products" className={navLinkClass}>
-              Products
-            </NavLink>
             <NavLink to="/brands" className={navLinkClass}>
               Brands
+            </NavLink>
+            <NavLink to="/products" className={navLinkClass}>
+              Products
             </NavLink>
             {user?.role === "admin" && (
               <NavLink to="/users" className={navLinkClass}>

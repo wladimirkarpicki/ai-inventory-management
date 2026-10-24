@@ -1206,6 +1206,45 @@ def low_stock_list(
     }
 
 
+@app.get("/api/movements/top")
+def movements_top(
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+    days: int = Query(30, ge=1, le=90),
+    limit: int = Query(10, ge=1, le=50),
+) -> dict:
+    """
+    Leaderboards for the Stock dynamics section (P23): per-product
+    in/out sums over the window, split into top restocks and top
+    consumption. The signed-qty convention sums straight into the two
+    directions; products without movements are simply absent.
+    """
+
+    rows = db.execute(
+        "SELECT p.id, p.name, "
+        "COALESCE(SUM(m.qty) FILTER (WHERE m.qty > 0), 0), "
+        "COALESCE(SUM(-m.qty) FILTER (WHERE m.qty < 0), 0) "
+        "FROM products p "
+        "JOIN stock_movements m ON m.product_id = p.id "
+        "WHERE m.timestamp >= now() - make_interval(days => %s) "
+        "GROUP BY p.id, p.name",
+        (days,),
+    ).fetchall()
+
+    top_in = sorted(rows, key=lambda r: (-r[2], r[1]))[:limit]
+    top_out = sorted(rows, key=lambda r: (-r[3], r[1]))[:limit]
+
+    return {
+        "days": days,
+        "top_in": [
+            {"product_id": r[0], "name": r[1], "in_qty": r[2]} for r in top_in
+        ],
+        "top_out": [
+            {"product_id": r[0], "name": r[1], "out_qty": r[3]} for r in top_out
+        ],
+    }
+
+
 def _extract_json_array(content: str) -> str:
     """
     Free-pool reasoning models often prepend Chain-of-Thought prose or a
