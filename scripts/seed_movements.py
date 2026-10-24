@@ -1,7 +1,19 @@
 #!/usr/bin/env python3
 """
-Seed script for stock_movements table with 30 simulated movements over last 30 days.
-Uses random data based on existing product quantities.
+Seed a realistic 30-day movement history for the demo database (P24).
+
+Every product gets a demand profile: ~30% steady sellers (a sale every
+1-3 days), ~50% moderate (a sale every 4-10 days), ~20% slow movers
+(0-2 sales a month) — plus periodic restocks. Reasons follow the app
+taxonomy (sale / restock / write_off) so analytics and the dynamics
+charts read naturally.
+
+Usage (from the repo root or inside the container):
+    python -m scripts.seed_movements            # add history
+    python -m scripts.seed_movements --wipe     # wipe movements first
+
+The wipe flag only touches stock_movements — product quantities are
+left as they are (they already reflect the "current" state).
 """
 
 import random
@@ -15,65 +27,91 @@ import psycopg
 
 from database import get_connection_string
 
-conn = psycopg.connect(get_connection_string())
-cur = conn.cursor()
+WIPE = "--wipe" in sys.argv
+DAYS = 30
+random.seed(20261024)
 
-# Generate 30 simulated movements
-random.seed(42)  # For reproducibility
 
-# Get all product IDs
-cur.execute("SELECT id FROM products")
-product_ids = [row[0] for row in cur.fetchall()]
+def main() -> None:
+    conn = psycopg.connect(get_connection_string())
+    cur = conn.cursor()
 
-# Current date
-now = datetime.now()
+    if WIPE:
+        cur.execute("DELETE FROM stock_movements")
+        print("wiped stock_movements")
 
-# Generate 30 days of simulated movements (backwards from today)
-start_date = now - timedelta(days=30)
-movements = []
+    cur.execute("SELECT id FROM products")
+    product_ids = [row[0] for row in cur.fetchall()]
+    if not product_ids:
+        print("no products — run scripts.seed_demo_data first")
+        conn.close()
+        return
 
-for i in range(30):
-    # Random product
-    product_id = random.choice(product_ids)
+    now = datetime.now()
+    start = now - timedelta(days=DAYS)
+    movements = []
 
-    # Random type: in or out (50/50 chance)
-    movement_type = random.choice(['in', 'out'])
+    for product_id in product_ids:
+        roll = random.random()
+        if roll < 0.30:
+            sale_every, sale_qty = (1, 3), (1, 4)  # steady seller
+        elif roll < 0.80:
+            sale_every, sale_qty = (4, 10), (1, 3)  # moderate
+        else:
+            sale_every, sale_qty = (12, 30), (1, 2)  # slow mover
 
-    # Random quantity (1-10 for in, 1-5 for out to keep quantities reasonable)
-    if movement_type == 'in':
-        qty = random.randint(1, 10)
-    else:
-        qty = random.randint(1, 5)
+        day = random.uniform(0, sale_every[1])
+        while day < DAYS:
+            movements.append(
+                (
+                    product_id,
+                    "out",
+                    -random.randint(*sale_qty),
+                    "sale",
+                    start + timedelta(days=day, hours=random.uniform(0, 24) - 24),
+                )
+            )
+            day += random.uniform(*sale_every)
 
-    # Calculate date (going backwards from today)
-    movement_date = start_date + timedelta(days=i)
+        # A restock wave roughly every 10 days for active products.
+        if roll < 0.80 and random.random() < 0.75:
+            for wave in range(random.randint(1, 3)):
+                movements.append(
+                    (
+                        product_id,
+                        "in",
+                        random.randint(8, 30),
+                        "restock",
+                        start
+                        + timedelta(
+                            days=random.uniform(0, DAYS),
+                            hours=random.uniform(0, 24) - 24,
+                        ),
+                    )
+                )
 
-    # Random reason
-    reasons = [
-        "Initial stock",
-        "Restock",
-        "Sale",
-        "Damage",
-        "Return",
-        "Transfer",
-        "Reorder",
-        "Inventory audit",
-        "Promotion",
-        "Seasonal demand"
-    ]
-    reason = random.choice(reasons)
+    # A few write-offs for realism.
+    for product_id in random.sample(product_ids, min(40, len(product_ids))):
+        movements.append(
+            (
+                product_id,
+                "out",
+                -random.randint(1, 3),
+                "write_off",
+                start + timedelta(days=random.uniform(0, DAYS)),
+            )
+        )
 
-    # Determine if qty should be positive or negative
-    qty_value = qty if movement_type == 'in' else -qty
+    cur.executemany(
+        "INSERT INTO stock_movements (product_id, in_out, qty, reason, timestamp) "
+        "VALUES (%s, %s, %s, %s, %s)",
+        movements,
+    )
+    conn.commit()
+    print(f"seeded {len(movements)} movements over {DAYS} days "
+          f"for {len(product_ids)} products")
+    conn.close()
 
-    movements.append((product_id, movement_type, qty_value, reason, movement_date))
 
-# Insert all movements
-cur.executemany("""
-    INSERT INTO stock_movements (product_id, in_out, qty, reason, timestamp)
-    VALUES (%s, %s, %s, %s, %s)
-""", movements)
-
-conn.commit()
-conn.close()
-print(f"Seeded {len(movements)} stock movements")
+if __name__ == "__main__":
+    main()
