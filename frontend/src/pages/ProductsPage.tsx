@@ -7,6 +7,7 @@ import {
   PlusIcon,
   SearchIcon,
   Trash2Icon,
+  TriangleAlertIcon,
   UploadIcon,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -88,6 +89,7 @@ export function ProductsPage() {
   const [search, setSearch] = useState("")
   const [sort, setSort] = useState("name")
   const [direction, setDirection] = useState<"asc" | "desc">("asc")
+  const [lowOnly, setLowOnly] = useState(false)
   const [page, setPage] = useState(1)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [formOpen, setFormOpen] = useState(false)
@@ -107,11 +109,12 @@ export function ProductsPage() {
         direction,
         page: String(page),
       })
+      if (lowOnly) params.set("low_stock_only", "true")
       setList(await api<ProductList>(`/api/products?${params}`))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load.")
     }
-  }, [search, sort, direction, page])
+  }, [search, sort, direction, lowOnly, page])
 
   useEffect(() => {
     void load()
@@ -140,6 +143,56 @@ export function ProductsPage() {
       reason: "manual_edit",
     })
     setFormOpen(true)
+  }
+
+  // P20: column-header sorting — click toggles the column, a second
+  // click flips the direction.
+  function sortBy(column: string) {
+    if (sort === column) {
+      setDirection((current) => (current === "asc" ? "desc" : "asc"))
+    } else {
+      setSort(column)
+      setDirection("asc")
+    }
+    setPage(1)
+  }
+
+  function SortHead({
+    column,
+    label,
+    className,
+  }: {
+    column: string
+    label: string
+    className?: string
+  }) {
+    const active = sort === column
+    return (
+      <TableHead className={className}>
+        <button
+          type="button"
+          onClick={() => sortBy(column)}
+          title={
+            active
+              ? direction === "asc"
+                ? "Sorted ascending — click to reverse"
+                : "Sorted descending — click to reverse"
+              : `Sort by ${label.toLowerCase()}`
+          }
+          className={`inline-flex items-center gap-1 text-inherit transition-colors hover:text-foreground ${
+            active ? "text-foreground" : "text-muted-foreground"
+          }`}
+        >
+          {label}
+          {active &&
+            (direction === "asc" ? (
+              <ArrowUpIcon className="size-3" />
+            ) : (
+              <ArrowDownIcon className="size-3" />
+            ))}
+        </button>
+      </TableHead>
+    )
   }
 
   function closeForm() {
@@ -279,36 +332,17 @@ export function ProductsPage() {
             />
           </div>
 
-          <Select
-            value={sort}
-            onValueChange={(value) => {
-              setSort(value)
+          <Button
+            variant={lowOnly ? "default" : "outline"}
+            size="sm"
+            onClick={() => {
+              setLowOnly((current) => !current)
               setPage(1)
             }}
+            title="Show only products whose quantity is below their reorder point"
           >
-            <SelectTrigger className="w-[150px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="name">Sort: Name</SelectItem>
-              <SelectItem value="price">Sort: Price</SelectItem>
-              <SelectItem value="quantity">Sort: Quantity</SelectItem>
-              <SelectItem value="brand">Sort: Brand</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Button
-            variant="outline"
-            size="icon"
-            aria-label="Toggle sort direction"
-            title={
-              direction === "asc" ? "Ascending" : "Descending"
-            }
-            onClick={() =>
-              setDirection((current) => (current === "asc" ? "desc" : "asc"))
-            }
-          >
-            {direction === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />}
+            <TriangleAlertIcon />
+            Below reorder point
           </Button>
         </CardContent>
       </Card>
@@ -332,12 +366,12 @@ export function ProductsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Brand</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead className="text-right">Price</TableHead>
-                  <TableHead className="text-right">Quantity</TableHead>
-                  <TableHead className="text-right">Reorder point</TableHead>
-                  <TableHead className="text-right">Lead time</TableHead>
+                  <SortHead column="brand" label="Brand" />
+                  <SortHead column="name" label="Name" />
+                  <SortHead column="price" label="Price" className="text-right" />
+                  <SortHead column="quantity" label="Quantity" className="text-right" />
+                  <SortHead column="reorder_point" label="Reorder point" className="text-right" />
+                  <SortHead column="lead_time_days" label="Lead time" className="text-right" />
                   <TableHead className="w-24" />
                 </TableRow>
               </TableHeader>

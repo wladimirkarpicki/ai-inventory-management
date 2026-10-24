@@ -294,7 +294,7 @@ def test_brand_crud_blocks_deleting_a_brand_with_products(api, admin_api):
 def test_products_pagination_and_search(api, admin_api):
     brand_id = admin_api.post("/api/brands", json={"name": "Acme"}).json()["id"]
 
-    for index in range(12):
+    for index in range(32):
         admin_api.post(
             "/api/products",
             json={
@@ -310,11 +310,15 @@ def test_products_pagination_and_search(api, admin_api):
     assert response.status_code == 200
     body = response.json()
 
-    assert body["total"] == 12
-    assert body["pages"] == 2
-    assert len(body["items"]) == 10
+    assert body["total"] == 32
+    assert body["pages"] == 3  # PAGE_SIZE = 15
+    assert len(body["items"]) == 15
 
-    response = admin_api.get("/api/products", params={"search": "Item 6"})
+    tail = admin_api.get("/api/products", params={"page": 3})
+    assert tail.status_code == 200
+    assert len(tail.json()["items"]) == 2
+
+    response = admin_api.get("/api/products", params={"search": "Item 31"})
 
     assert response.json()["total"] == 1
 
@@ -338,6 +342,41 @@ def test_product_sorting_by_price_desc(api, admin_api):
     prices = [item["price"] for item in response.json()["items"]]
 
     assert prices == [5.0, 3.0, 1.0]
+
+
+def test_products_low_stock_only_filter(api, admin_api):
+    brand_id = admin_api.post("/api/brands", json={"name": "FilterCo"}).json()["id"]
+
+    def make(name, qty, reorder_point):
+        return admin_api.post(
+            "/api/products",
+            json={
+                "brand_id": brand_id,
+                "name": name,
+                "price": 1.0,
+                "quantity": qty,
+                "reorder_point": reorder_point,
+            },
+        )
+
+    make("Below", qty=2, reorder_point=10)
+    make("Above", qty=50, reorder_point=20)
+    make("Equal", qty=10, reorder_point=10)
+    make("NoStock", qty=0, reorder_point=10)
+
+    # Only strictly-below-reorder-point products, NULL quantities excluded.
+    response = admin_api.get("/api/products", params={"low_stock_only": "true"})
+
+    assert response.status_code == 200
+    names = [i["name"] for i in response.json()["items"]]
+    assert names == ["Below", "NoStock"]
+
+    # The new sort key rides the same validated SORT_COLUMNS allowlist.
+    response = admin_api.get(
+        "/api/products", params={"sort": "reorder_point", "direction": "desc"}
+    )
+    rps = [i["reorder_point"] for i in response.json()["items"]]
+    assert rps == [20, 10, 10, 10]
 
 
 def test_product_create_rejects_unknown_brand(api, admin_api):
