@@ -89,17 +89,18 @@ describe("DashboardPage", () => {
     })
   })
 
-  it("renders all five tabs with the forecast active by default", async () => {
+  it("renders all six tabs with the forecast active by default", async () => {
     render(<DashboardPage />)
 
     const tabs = await screen.findAllByRole("tab")
-    expect(tabs).toHaveLength(5)
+    expect(tabs).toHaveLength(6)
     for (const name of [
       "Forecast",
       "Recommendations",
       "Stock dynamics",
       "Recent movements",
       "Low stock",
+      "Orders",
     ]) {
       expect(
         screen.getByRole("tab", { name: new RegExp(name, "i") })

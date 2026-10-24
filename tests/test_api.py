@@ -585,3 +585,127 @@ def test_products_unique_brand_lower_name_enforced_by_db(db_connection):
                 (brand_id,),
             )
         db_connection.commit()
+
+
+# ------------------------------------------------------------------ orders (P25)
+
+
+def _make_product(admin_api, name, qty=5, lead_time_days=7):
+    brand_id = admin_api.post("/api/brands", json={"name": f"OrderB{name}"}).json()["id"]
+    response = admin_api.post(
+        "/api/products",
+        json={
+            "brand_id": brand_id,
+            "name": name,
+            "price": 2.0,
+            "quantity": qty,
+            "lead_time_days": lead_time_days,
+        },
+    )
+    assert response.status_code == 200
+    return response.json()["id"]
+
+
+def test_orders_require_auth(api):
+    assert api.post("/api/orders", json={"product_id": 1, "qty": 1}).status_code == 401
+    assert api.get("/api/orders").status_code == 401
+
+
+def test_create_order_derives_expected_from_lead_time(api, admin_api):
+    product_id = _make_product(admin_api, "LeadOrder", lead_time_days=12)
+
+    response = admin_api.post("/api/orders", json={"product_id": product_id, "qty": 20})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ordered"
+    assert body["product_name"] == "LeadOrder"
+    assert body["received_at"] is None
+    from datetime import datetime
+
+    created = datetime.fromisoformat(body["created_at"])
+    expected = datetime.fromisoformat(body["expected_at"])
+    assert 11 <= (expected - created).days <= 13  # lead_time_days = 12
+
+
+def test_create_order_unknown_product_and_bad_qty(api, admin_api):
+    assert (
+        admin_api.post("/api/orders", json={"product_id": 999999, "qty": 5}).status_code
+        == 404
+    )
+    assert (
+        admin_api.post("/api/orders", json={"product_id": 1, "qty": 0}).status_code
+        == 422
+    )
+
+
+def test_order_receive_adds_stock_and_records_movement(api, admin_api):
+    product_id = _make_product(admin_api, "RecvOrder", qty=5)
+
+    order_id = admin_api.post(
+        "/api/orders", json={"product_id": product_id, "qty": 30}
+    ).json()["id"]
+
+    response = admin_api.post(f"/api/orders/{order_id}/receive")
+    assert response.status_code == 200
+
+    # Stock grew by the ordered quantity.
+    listing = admin_api.get("/api/products", params={"search": "RecvOrder"})
+    assert listing.json()["items"][0]["quantity"] == 35
+
+    # A matching purchase_order movement was recorded.
+    movements = admin_api.get("/api/movements", params={"limit": 15}).json()["items"]
+    match = [
+        m
+        for m in movements
+        if m["product_id"] == product_id
+        and m["qty_delta"] == 30
+        and m["reason"] == "purchase_order"
+    ]
+    assert len(match) == 1
+
+
+def test_order_receive_twice_rejected(api, admin_api):
+    product_id = _make_product(admin_api, "DoubleRecv")
+    order_id = admin_api.post(
+        "/api/orders", json={"product_id": product_id, "qty": 3}
+    ).json()["id"]
+
+    assert admin_api.post(f"/api/orders/{order_id}/receive").status_code == 200
+    assert admin_api.post(f"/api/orders/{order_id}/receive").status_code == 400
+
+
+def test_order_cancel_flow(api, admin_api):
+    product_id = _make_product(admin_api, "CancelOrder")
+    order_id = admin_api.post(
+        "/api/orders", json={"product_id": product_id, "qty": 7}
+    ).json()["id"]
+
+    assert admin_api.post(f"/api/orders/{order_id}/cancel").status_code == 200
+    # Cancelled orders cannot be received nor cancelled again.
+    assert admin_api.post(f"/api/orders/{order_id}/receive").status_code == 400
+    assert admin_api.post(f"/api/orders/{order_id}/cancel").status_code == 400
+
+
+def test_orders_list_filters_and_paginates(api, admin_api):
+    product_id = _make_product(admin_api, "ListOrder")
+    ids = []
+    for qty in (2, 4, 6):
+        ids.append(
+            admin_api.post("/api/orders", json={"product_id": product_id, "qty": qty}).json()["id"]
+        )
+
+    body = admin_api.get("/api/orders").json()
+    assert body["total"] == 3
+    assert all("product_name" in i and i["product_name"] == "ListOrder" for i in body["items"])
+
+    # Receive one; the status filter narrows correctly.
+    admin_api.post(f"/api/orders/{ids[2]}/receive")
+    assert admin_api.get("/api/orders", params={"status": "received"}).json()["total"] == 1
+    assert admin_api.get("/api/orders", params={"status": "ordered"}).json()["total"] == 2
+    assert admin_api.get("/api/orders", params={"status": "bogus"}).status_code == 400
+
+    # Pagination: one page of 2.
+    page = admin_api.get("/api/orders", params={"limit": 2, "offset": 0}).json()
+    assert len(page["items"]) == 2
+    assert page["total"] == 3

@@ -219,3 +219,23 @@ export interface TopMovers {
   top_in: TopMoverIn[]
   top_out: TopMoverOut[]
 }
+
+// ------------------------------------------------------------------ orders (P25)
+
+export type OrderStatus = "ordered" | "received" | "cancelled"
+
+export interface OrderRow {
+  id: number
+  product_id: number
+  product_name: string
+  qty: number
+  status: OrderStatus
+  created_at: string
+  expected_at: string
+  received_at: string | null
+}
+
+export interface OrderPage {
+  items: OrderRow[]
+  total: number
+}
