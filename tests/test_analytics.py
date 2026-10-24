@@ -610,7 +610,29 @@ def test_recommendations_lists_low_stock(api, admin_api, db_connection):
     assert items[0]["name"] == "LowStock"
     assert items[0]["current_qty"] == 3
     assert items[0]["recommended_qty"] > 0
+    assert items[0]["open_order_qty"] == 0  # no orders yet (P26)
     assert all(item["name"] != "Healthy" for item in items)
+
+
+def test_recommendations_flag_open_orders(api, admin_api, db_connection):
+    _brand_id, product_id = _insert_brand_product(
+        db_connection, brand_name="OrderCo", product_name="OnOrder", qty=3
+    )
+    _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
+
+    # Create an open purchase order for this product.
+    order = admin_api.post(
+        "/api/orders", json={"product_id": product_id, "qty": 12}
+    )
+    assert order.status_code == 200
+
+    response = admin_api.get("/api/recommendations")
+
+    assert response.status_code == 200
+    items = response.json()["recommendations"]
+    target = [i for i in items if i["product_id"] == product_id]
+    assert len(target) == 1
+    assert target[0]["open_order_qty"] == 12  # flagged (P26)
 
 
 def test_recommendations_empty_when_all_healthy(api, admin_api, db_connection):

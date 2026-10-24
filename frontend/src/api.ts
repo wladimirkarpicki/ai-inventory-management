@@ -138,6 +138,7 @@ export interface RecommendationRow {
   current_qty: number
   recommended_qty: number
   estimated_days_until_empty: number | null
+  open_order_qty: number
 }
 
 export interface RecommendationPage {
