@@ -688,3 +688,49 @@ def test_dashboard_stats_low_stock_alerts_capped_at_top10(api, admin_api, db_con
     remaining = [a["remaining_qty"] for a in alerts]
     assert remaining == sorted(remaining)
     assert remaining[0] == 0
+
+
+# ------------------------------------------------------------------ /api/low-stock (P19)
+
+
+def test_low_stock_list_requires_auth(api):
+    assert api.get("/api/low-stock").status_code == 401
+
+
+def test_low_stock_list_paginated_most_depleted_first(api, admin_api, db_connection):
+    quantities = [4, 3, 2, 1, 0, 4, 3, 2, 1, 0, 3, 2]
+    for idx, qty in enumerate(quantities):
+        _insert_brand_product(
+            db_connection,
+            brand_name=f"LsBrand{idx}",
+            product_name=f"LsProduct{idx:02d}",
+            qty=qty,
+        )
+
+    response = admin_api.get("/api/low-stock", params={"limit": 5, "offset": 0})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 12
+    assert len(body["items"]) == 5
+    remaining = [i["remaining_qty"] for i in body["items"]]
+    assert remaining == sorted(remaining)
+    assert remaining[0] == 0
+    assert all("reorder_point" in i for i in body["items"])
+
+    tail = admin_api.get("/api/low-stock", params={"limit": 5, "offset": 10})
+    assert tail.status_code == 200
+    assert len(tail.json()["items"]) == 2
+
+
+def test_low_stock_list_shows_same_name_across_brands(api, admin_api, db_connection):
+    _b, _pid = _insert_brand_product(db_connection, product_name="Twin", qty=2)
+    _insert_brand_product(db_connection, brand_name="TwinOther", product_name="Twin", qty=1)
+
+    response = admin_api.get("/api/low-stock")
+
+    assert response.status_code == 200
+    names = [i["name"] for i in response.json()["items"]]
+    # DISTINCT ON keys include brand_id: the same name under two brands
+    # is two legitimate products — both listed.
+    assert names.count("Twin") == 2
