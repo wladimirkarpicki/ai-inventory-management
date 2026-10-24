@@ -17,3 +17,5 @@ backups/
 frontend/node_modules/
 frontend/dist/
 *.tsbuildinfo
+
+backup_before_dedupe.sql
