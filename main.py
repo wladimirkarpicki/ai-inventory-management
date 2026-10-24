@@ -48,7 +48,7 @@ if len(SECRET_KEY) < 32:
     )
 
 TOKEN_TTL_HOURS = 12
-PAGE_SIZE = 10
+PAGE_SIZE = 15
 LOW_STOCK_THRESHOLD = 5
 LOW_STOCK_ALERTS_LIMIT = 10
 LOGIN_MAX_ATTEMPTS = 5
@@ -61,6 +61,8 @@ SORT_COLUMNS = {
     "name": "p.name",
     "price": "p.price",
     "quantity": "p.quantity",
+    "reorder_point": "p.reorder_point",
+    "lead_time_days": "p.lead_time_days",
 }
 
 _failed_logins: dict = {}
@@ -564,6 +566,7 @@ def list_products(
     search: str = "",
     sort: str = "name",
     direction: str = "asc",
+    low_stock_only: bool = False,
     page: int = Query(default=1, ge=1),
 ) -> dict:
     if sort not in SORT_COLUMNS:
@@ -578,6 +581,10 @@ def list_products(
         "FROM products p JOIN brands b ON p.brand_id = b.id "
         "WHERE (%s = '' OR p.name ILIKE %s ESCAPE '\\' OR b.name ILIKE %s ESCAPE '\\')"
     )
+    if low_stock_only:
+        # Quick filter (P20): products whose stock already dipped below
+        # their own reorder point.
+        base += " AND p.quantity IS NOT NULL AND p.quantity < p.reorder_point"
 
     total = db.execute(f"SELECT COUNT(*) {base}", (search, like, like)).fetchone()[0]  # type: ignore[index]  # single-row query by construction
 
