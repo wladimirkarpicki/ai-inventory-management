@@ -199,3 +199,23 @@ export interface LowStockPage {
   items: LowStockRow[]
   total: number
 }
+
+// ------------------------------------------------------------------ top movers (P23)
+
+export interface TopMoverIn {
+  product_id: number
+  name: string
+  in_qty: number
+}
+
+export interface TopMoverOut {
+  product_id: number
+  name: string
+  out_qty: number
+}
+
+export interface TopMovers {
+  days: number
+  top_in: TopMoverIn[]
+  top_out: TopMoverOut[]
+}

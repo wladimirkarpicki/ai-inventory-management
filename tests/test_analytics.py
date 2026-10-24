@@ -738,3 +738,43 @@ def test_low_stock_list_shows_same_name_across_brands(api, admin_api, db_connect
     # DISTINCT ON keys include brand_id: the same name under two brands
     # is two legitimate products — both listed.
     assert names.count("Twin") == 2
+
+
+# ------------------------------------------------------------------ /api/movements/top (P23)
+
+
+def test_movements_top_requires_auth(api):
+    assert api.get("/api/movements/top").status_code == 401
+
+
+def test_movements_top_leaderboards(api, admin_api, db_connection):
+    _b1, pid_a = _insert_brand_product(db_connection, product_name="MoverA", qty=100)
+    _b2, pid_b = _insert_brand_product(db_connection, brand_name="MoverBrandB", product_name="MoverB", qty=100)
+    # A: steady consumption; B: one big restock wave.
+    _insert_movements(db_connection, pid_a, qty_per_day=-5, days=4)
+    _insert_movements(db_connection, pid_b, qty_per_day=20, days=3, reason="restock")
+
+    response = admin_api.get("/api/movements/top", params={"days": 30, "limit": 10})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["days"] == 30
+    assert body["top_in"][0]["name"] == "MoverB"
+    assert body["top_in"][0]["in_qty"] == 60  # 3 days x 20
+    assert body["top_out"][0]["name"] == "MoverA"
+    assert body["top_out"][0]["out_qty"] == 20  # 4 days x 5
+
+
+def test_movements_top_window_filters_old(api, admin_api, db_connection):
+    _b, pid = _insert_brand_product(db_connection, product_name="OldMover", qty=100)
+    _insert_movements(db_connection, pid, qty_per_day=-3, days=2)
+    with db_connection.cursor() as cur:
+        cur.execute("UPDATE stock_movements SET timestamp = now() - interval '60 days'")
+    db_connection.commit()
+
+    response = admin_api.get("/api/movements/top", params={"days": 30})
+
+    assert response.status_code == 200
+    # Everything is outside the 30-day window — both leaderboards empty.
+    assert response.json()["top_out"] == []
+    assert response.json()["top_in"] == []
