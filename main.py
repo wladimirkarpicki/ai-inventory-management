@@ -1637,6 +1637,15 @@ def recommendations(
         "SELECT id, name, quantity, reorder_point, lead_time_days FROM products ORDER BY id"
     ).fetchall()
     series = _load_movements(db)
+    # Open purchase orders per product (P26): lets the UI flag items that
+    # are already on their way, so the same product isn't ordered twice.
+    open_orders = {
+        r[0]: r[1]
+        for r in db.execute(
+            "SELECT product_id, SUM(qty) FROM orders "
+            "WHERE status = 'ordered' GROUP BY product_id"
+        ).fetchall()
+    }
     items = []
     for pid, name, qty, rp, lt in rows:
         res = _forecast_for_product(series.get(pid, []), qty or 0, reorder_point=rp, lead_time_days=lt)
@@ -1649,6 +1658,7 @@ def recommendations(
                 "current_qty": qty or 0,
                 "recommended_qty": res["recommended_restock_qty"],
                 "estimated_days_until_empty": days,
+                "open_order_qty": open_orders.get(pid, 0),
             })
     # Most urgent first: estimated days ASC; unknown depletion last.
     items.sort(
