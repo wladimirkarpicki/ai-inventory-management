@@ -1,10 +1,10 @@
 # Agent Plan — inventory-management-system
-Last updated: 2026-10-24 13:30
+Last updated: 2026-10-24 14:25
 Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-10-24 13:00 (= Last updated глобала при последней сверке)
 Роль: проектный агент (inventory-management-system) — работа с кодинг-сабагентами; задачи — от главного агента (Team Lead) или пользователя.
 
 ## Status
-- Active focus: P18 (дедуп+UNIQUE) и P19 (low-stock пагинация) слиты в main (5800a00, af21660); контейнер пересобирается с новым бекендом; далее по списку: P20 Products UX → P21 Forecast-бейджи → P22 UI-тесты
+- Active focus: список P18–P22 выполнен полностью (main d4fd531, контейнер на P21-сборке C_Be87Pk); фронт-тесты 12/12; ждём новых задач от пользователя
 - Blocked: —
 - Risks: дубли товаров ИСПРАВЛЕНЫ (P18: 2008→1004, UNIQUE(brand_id, lower(name))); бэкап до дедупа — backup_before_dedupe.sql (не в git); Docker data disk чинился e2fsck 23.10 — при повторных падениях демона см. ENVIRONMENT.md
 
@@ -29,6 +29,9 @@ Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-1
 | P17 | UI polish v2 | ✅ merged (de19e50) | feat/dashboard-ui-polish-2 (1b28502) | pnpm build OK | убран theme-toggle из хедера (найден «stepper ▲▼» — иконка ☀ в мелком размере); убран бейдж-счётчик с таба Low stock; пагинация 15/таб; Stock dynamics 600px + сводка (in/out/net/active days) + период 30/90 + Legend + короткие даты; фикс дубля daily-useEffect (двойной fetch) |
 | P18 | Чистка дублей товаров + UNIQUE(brand, lower(name)) | ✅ merged (5800a00) | feat/dedupe-products (1f5858d) | `pytest` → 0 failed; `GET /api/products` → 1004 items | миграция 003 (DELETE лузеров + их движения + индекс); schema.sql + сид ON CONFLICT; API create/update → 400 при дубле; live: 2008→1004 товаров, low_stock 98→49, dup-групп 0; pytest 81/0, ruff 0 |
 | P19 | Low stock: полная пагинация | ✅ merged (af21660) | feat/low-stock-pagination (b9ee3c2) | `GET /api/low-stock?limit=5&offset=10` → 2 items, total 12 | GET /api/low-stock (qty ASC, reorder_point в ответе); таб Low stock → Pager + колонка Reorder point; +3 теста; pytest 84/0, ruff 0, pnpm build OK |
+| P20 | Products UX: фильтр + сортировка по колонкам + стр. 15 | ✅ merged (8ed9c03) | feat/products-ux (f3ea106) | `GET /api/products?low_stock_only=true` → только qty<rp; `pnpm test` → 0 failed | бекенд: low_stock_only, SORT_COLUMNS +rp/lt, PAGE_SIZE 15; UI: toggle «Below reorder point», кликабельные заголовки со стрелкой направления (Select+direction убраны); live: 15/стр, 67 страниц, 101 позиция ниже rp, 0 нарушений |
+| P21 | Forecast: stock/rp/lt/AI-бейдж в таблице | ✅ merged (493830e) | feat/forecast-badges (f07e7c4) | forecast rows содержат reorder_point/lead_time_days | строки прогноза несут rp/lt (кнопки расчёта); UI: колонки Stock/Reorder point/Lead time + бейдж «AI» у LLM-уточнённых строк; live: ключи в ответе подтверждены |
+| P22 | vitest для дашборда | ✅ merged (d4fd531) | feat/ui-tests (9563001) | `pnpm test` → 12 passed / 0 failed | DashboardPage.test.tsx: 5 табов, ленивая загрузка, пейджер (диапазоны + disabled), колонки low-stock; мок @/api по URL, ResizeObserver-stub |
 
 ## Task details (нетривиальные)
 
@@ -45,6 +48,27 @@ Scope: GET /api/low-stock (limit/offset, qty ASC, DISTINCT ON (brand, lower(name
 AC: `GET /api/low-stock?limit=5&offset=10` при 12 позициях → 2 items, total 12; `pytest` → 0 failed.
 Verification: `python -m pytest tests/test_analytics.py` → все green; `pnpm build` → exit 0.
 Constraints: эндпоинт размещён после analytics-констант (Query-дефолт вычисляется при декорации); stats.low_stock_alerts остаётся для совместимости тестов.
+
+### P20 — Products UX (фильтр, сортировка заголовками, страница 15)
+Goal: быстрый фильтр «ниже reorder point», сортировка кликом по заголовкам, единый размер страницы 15.
+Scope: бекенд — low_stock_only-параметр (quantity < reorder_point, NULL excluded), SORT_COLUMNS += reorder_point/lead_time_days, PAGE_SIZE 10→15; UI — toggle-кнопка вместо Select+direction, SortHead-кнопки в заголовках; тесты пагинации адаптированы (32→3 страницы), +1 тест фильтра/сортировки.
+AC: `pytest` → 0 failed; `GET /api/products?low_stock_only=true` → все items удовлетворяют qty<rp.
+Verification: `python -m pytest tests/` → 85 passed; live-смоук: 101/101 ниже rp, 0 нарушений.
+Constraints: NULL-quantity исключаются из фильтра; клик по активному столбцу переключает направление.
+
+### P21 — Forecast: rp/lt/AI в таблице
+Goal: показать параметры расчёта (reorder_point, lead_time_days) и честную LLM-метку в прогнозе.
+Scope: main.py — два поля в строках forecast; UI — колонки Stock/Reorder point/Lead time + бейдж «AI»; структурный тест расширен.
+AC: forecast-строки содержат reorder_point/lead_time_days; `pytest` → 0 failed.
+Verification: `GET /api/forecast?limit=1` → ключи в ответе; `pnpm build` → exit 0.
+Constraints: кэш P11 не затронут (поля добавлены до кэширования списка); бейдж только при ai_refined=true.
+
+### P22 — vitest для дашборда
+Goal: UI-регрессии (табы, ленивость, пейджер) ловятся на этапе тестов, а не в браузере.
+Scope: DashboardPage.test.tsx — 4 теста; мок @/api per-URL; ResizeObserver-stub для recharts.
+AC: `pnpm test` → 0 failed (12 тестов в 5 файлах).
+Verification: `pnpm test` → 12 passed.
+Constraints: Recharts-график не тестируется (обход — не открываем Dynamics-таб в тестах).
 
 ## Decisions
 - 2026-10-18 — v2-шаблон: процессные секции вынести в глобальный AGENTS.md, план хранит состояние. (Глобал создан 2026-10-19 — путь в Process-строке шапки; процессные секции ниже временные, убрать при ближайшей сверке Synced.)
@@ -96,4 +120,7 @@ Constraints: эндпоинт размещён после analytics-конста
 - ✅ P17 (2026-10-23) — UI polish v2: без theme-toggle, пагинация 15, большой информативный Stock dynamics (600px, сводка, 30/90 дней, легенда); merged de19e50
 - ✅ P18 (2026-10-24) — дедуп товаров: миграция 003 + UNIQUE(brand_id, lower(name)) + API 400 при дубле; live 2008→1004, low_stock 98→49 (merged 5800a00)
 - ✅ P19 (2026-10-24) — Low stock: /api/low-stock с limit/offset + Reorder point в табе; pytest 84/0 (merged af21660)
+- ✅ P20 (2026-10-24) — Products UX: low_stock_only-фильтр, кликабельные сортируемые заголовки, страница 15; live 101 позиция ниже rp (merged 8ed9c03)
+- ✅ P21 (2026-10-24) — Forecast: reorder_point/lead_time_days в строках + колонки и AI-бейдж в UI (merged 493830e)
+- ✅ P22 (2026-10-24) — vitest: 4 теста DashboardPage (табы/ленивость/пейджер/колонки), фронт-сьют 12/12 (merged d4fd531)
 - ✅ LIVE SMOKE P10–P14 (2026-10-22 19:45, lead, task-6): rebuild после падения демона (docker desktop start); /api/ready 200; миграция 002 в контейнерной БД (reorder_point=10/lead_time_days=7); /api/products — оба поля в items; forecast ×2 байт-идентичны за 0.0s, в логах ровно один openrouter: refining (модель openrouter/free) → «failed: response was not a JSON array — regression fallback» (free-pool лотерея, регрессия сохранена) — P11-кэш-хит доказан; /api/movements/daily 200 (29 items); /api/export/movements.csv 200 text/csv attachment (33 строки); все 6 UI-строк в бандле (Reorder point, Lead time (days), Export CSV, Stock dynamics (30 days), Units in/out); smoke-юзер удалён; finding F1 задокументирован в Risks
