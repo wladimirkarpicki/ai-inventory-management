@@ -639,6 +639,17 @@ def create_product(
     if brand is None:
         raise HTTPException(status_code=400, detail="Selected brand does not exist.")
 
+    # One product per (brand, case-insensitive name) — the DB enforces it
+    # via idx_products_brand_lower_name; report it as a clean 400 (P18).
+    if db.execute(
+        "SELECT 1 FROM products WHERE brand_id = %s AND LOWER(name) = LOWER(%s)",
+        (data.brand_id, data.name),
+    ).fetchone() is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="A product with this name already exists for this brand.",
+        )
+
     row = db.execute(
         "INSERT INTO products (brand_id, name, price, quantity, reorder_point, lead_time_days) "
         "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
@@ -684,6 +695,19 @@ def update_product(
 
     if brand is None:
         raise HTTPException(status_code=400, detail="Selected brand does not exist.")
+
+    # Renaming into an existing (brand, case-insensitive name) pair is a
+    # clean 400, not an IntegrityError (P18). The product's own row is
+    # excluded, so a no-change PATCH still passes.
+    if db.execute(
+        "SELECT 1 FROM products "
+        "WHERE brand_id = %s AND LOWER(name) = LOWER(%s) AND id <> %s",
+        (data.brand_id, data.name, product_id),
+    ).fetchone() is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="A product with this name already exists for this brand.",
+        )
 
     db.execute(
         "UPDATE products SET brand_id = %s, name = %s, price = %s, quantity = %s, reorder_point = %s, lead_time_days = %s WHERE id = %s",
