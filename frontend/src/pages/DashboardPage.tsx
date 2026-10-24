@@ -531,12 +531,12 @@ export function DashboardPage() {
 
       {/* Tab navigation */}
       <div className="mt-6 border-b">
-        <nav className="flex flex-wrap gap-x-4 gap-y-1 px-4" role="tablist" aria-label="Dashboard sections">
+        <nav className="grid grid-cols-2 gap-1 px-4 sm:grid-cols-3 lg:grid-cols-6" role="tablist" aria-label="Dashboard sections">
           <button
             role="tab"
             aria-selected={activeTab === "forecast"}
             onClick={() => setActiveTab("forecast")}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+            className={`flex items-center justify-center gap-2 px-2 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
               activeTab === "forecast"
                 ? "border-primary text-primary"
                 : "text-muted-foreground hover:text-foreground hover:border-muted"
@@ -549,7 +549,7 @@ export function DashboardPage() {
             role="tab"
             aria-selected={activeTab === "recommendations"}
             onClick={() => setActiveTab("recommendations")}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+            className={`flex items-center justify-center gap-2 px-2 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
               activeTab === "recommendations"
                 ? "border-primary text-primary"
                 : "text-muted-foreground hover:text-foreground hover:border-muted"
@@ -562,7 +562,7 @@ export function DashboardPage() {
             role="tab"
             aria-selected={activeTab === "dynamics"}
             onClick={() => setActiveTab("dynamics")}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+            className={`flex items-center justify-center gap-2 px-2 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
               activeTab === "dynamics"
                 ? "border-primary text-primary"
                 : "text-muted-foreground hover:text-foreground hover:border-muted"
@@ -575,7 +575,7 @@ export function DashboardPage() {
             role="tab"
             aria-selected={activeTab === "movements"}
             onClick={() => setActiveTab("movements")}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+            className={`flex items-center justify-center gap-2 px-2 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
               activeTab === "movements"
                 ? "border-primary text-primary"
                 : "text-muted-foreground hover:text-foreground hover:border-muted"
@@ -588,7 +588,7 @@ export function DashboardPage() {
             role="tab"
             aria-selected={activeTab === "lowstock"}
             onClick={() => setActiveTab("lowstock")}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+            className={`flex items-center justify-center gap-2 px-2 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
               activeTab === "lowstock"
                 ? "border-primary text-primary"
                 : "text-muted-foreground hover:text-foreground hover:border-muted"
@@ -601,7 +601,7 @@ export function DashboardPage() {
             role="tab"
             aria-selected={activeTab === "orders"}
             onClick={() => setActiveTab("orders")}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+            className={`flex items-center justify-center gap-2 px-2 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
               activeTab === "orders"
                 ? "border-primary text-primary"
                 : "text-muted-foreground hover:text-foreground hover:border-muted"
