@@ -207,12 +207,16 @@ def test_forecast_structure_with_no_movements(api, admin_api, db_connection):
     assert set(f) == {
         "product_id", "name", "current_qty",
         "days_until_stockout", "recommended_restock_qty",
-        "daily_consumption_rate", "daily_net_rate", "ai_refined",
+        "daily_consumption_rate", "daily_net_rate",
+        "reorder_point", "lead_time_days", "ai_refined",
     }
     # No movements → no trend: null days (the old 9999 sentinel is gone)
     assert f["daily_consumption_rate"] == 0.0
     assert f["days_until_stockout"] is None
     assert f["recommended_restock_qty"] == 0
+    # P21: the per-product knobs ride along for the UI.
+    assert f["reorder_point"] == 10
+    assert f["lead_time_days"] == 7
     assert f["ai_refined"] is False
 
 
