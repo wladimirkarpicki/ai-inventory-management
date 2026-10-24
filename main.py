@@ -1394,6 +1394,10 @@ def forecast(
                 "recommended_restock_qty": res["recommended_restock_qty"],
                 "daily_consumption_rate": round(max(0, -res["daily_net_rate"]), 3),
                 "daily_net_rate": res["daily_net_rate"],
+                # P21: the per-product knobs the forecast was computed
+                # with, surfaced for the UI.
+                "reorder_point": rp,
+                "lead_time_days": lt,
                 "ai_refined": False,
             })
         # Most urgent first: days until stockout ASC; no-consumption items last.
