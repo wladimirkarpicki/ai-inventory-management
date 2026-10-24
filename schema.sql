@@ -20,6 +20,11 @@ CREATE TABLE IF NOT EXISTS products (
     lead_time_days INTEGER NOT NULL DEFAULT 7
 );
 
+-- One product per (brand, case-insensitive name) — the same rule the
+-- CSV import deduplicates by, enforced by the database (P18).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_products_brand_lower_name
+    ON products (brand_id, LOWER(name));
+
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     username VARCHAR(100) NOT NULL UNIQUE,
