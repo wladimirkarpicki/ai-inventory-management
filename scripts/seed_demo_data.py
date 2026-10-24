@@ -55,10 +55,18 @@ def main() -> None:
             brand_id = row[0]
             for name, price in items:
                 cur = conn.execute(
-                    "INSERT INTO products (brand_id, name, price, quantity) "
-                    "VALUES (%s, %s, %s, %s) "
+                    "INSERT INTO products (brand_id, name, price, quantity, "
+                    "reorder_point, lead_time_days) "
+                    "VALUES (%s, %s, %s, %s, %s, %s) "
                     "ON CONFLICT DO NOTHING",
-                    (brand_id, name, price, rng.randint(1, 100)),
+                    (
+                        brand_id,
+                        name,
+                        price,
+                        rng.randint(1, 100),
+                        rng.randint(5, 30),   # varied reorder points
+                        rng.randint(3, 14),   # varied supplier lead times
+                    ),
                 )
                 inserted += cur.rowcount
             print(f"  -> {len(items)} products for {brand_name}")
