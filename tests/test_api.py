@@ -461,3 +461,88 @@ def test_metrics_exposed(api):
     response = api.get("/metrics")
     assert response.status_code == 200
     assert "http_request" in response.text
+
+
+# ------------------------------------------------------------------ product uniqueness (P18)
+
+
+def test_create_product_duplicate_name_same_brand_rejected(api, admin_api):
+    brand_id = admin_api.post("/api/brands", json={"name": "DedupeCo"}).json()["id"]
+
+    first = admin_api.post(
+        "/api/products",
+        json={"brand_id": brand_id, "name": "Widget", "price": 1.0, "quantity": 1},
+    )
+    assert first.status_code == 200
+
+    # Same brand, same name in different case → 400, not a duplicate row.
+    dup = admin_api.post(
+        "/api/products",
+        json={"brand_id": brand_id, "name": "WIDGET", "price": 2.0, "quantity": 2},
+    )
+    assert dup.status_code == 400
+
+    # Same name under a different brand is a distinct product → allowed.
+    other_brand = admin_api.post("/api/brands", json={"name": "DedupeOther"}).json()["id"]
+    ok = admin_api.post(
+        "/api/products",
+        json={"brand_id": other_brand, "name": "Widget", "price": 2.0, "quantity": 2},
+    )
+    assert ok.status_code == 200
+
+
+def test_update_product_rename_into_duplicate_rejected(api, admin_api):
+    brand_id = admin_api.post("/api/brands", json={"name": "RenameCo"}).json()["id"]
+    admin_api.post(
+        "/api/products",
+        json={"brand_id": brand_id, "name": "Alpha", "price": 1.0, "quantity": 1},
+    )
+    beta_id = admin_api.post(
+        "/api/products",
+        json={"brand_id": brand_id, "name": "Beta", "price": 1.0, "quantity": 1},
+    ).json()["id"]
+
+    # Renaming Beta into (case-insensitive) Alpha collides → 400.
+    dup = admin_api.patch(
+        f"/api/products/{beta_id}",
+        json={
+            "brand_id": brand_id,
+            "name": "ALPHA",
+            "price": 1.0,
+            "quantity": 1,
+            "reason": "manual_edit",
+        },
+    )
+    assert dup.status_code == 400
+
+    # Keeping its own name (only price changes) is fine.
+    keep = admin_api.patch(
+        f"/api/products/{beta_id}",
+        json={"brand_id": brand_id, "name": "Beta", "price": 1.5, "quantity": 1},
+    )
+    assert keep.status_code == 200
+
+
+def test_products_unique_brand_lower_name_enforced_by_db(db_connection):
+    import psycopg.errors
+
+    with db_connection.cursor() as cur:
+        cur.execute("INSERT INTO brands (name) VALUES ('IdxCo') RETURNING id")
+        brand_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO products (brand_id, name, price, quantity) "
+            "VALUES (%s, 'Same', 1, 1)",
+            (brand_id,),
+        )
+    db_connection.commit()
+
+    # schema.sql carries the unique index — a direct duplicate INSERT
+    # must fail at the database level.
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with db_connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO products (brand_id, name, price, quantity) "
+                "VALUES (%s, 'SAME', 1, 1)",
+                (brand_id,),
+            )
+        db_connection.commit()
