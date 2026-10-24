@@ -34,6 +34,7 @@ import {
   type Stats,
 } from "@/api"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -460,19 +461,29 @@ export function DashboardPage() {
             <TableHeader>
               <TableRow>
                 <TableCell className="text-left product">Product</TableCell>
+                <TableCell className="text-right qty">Stock</TableCell>
                 <TableCell className="text-center days">Days left</TableCell>
                 <TableCell className="text-right restock">Rec. restock</TableCell>
+                <TableCell className="text-right rp">Reorder point</TableCell>
+                <TableCell className="text-center lt">Lead time</TableCell>
+                <TableCell className="text-center ai">AI</TableCell>
               </TableRow>
             </TableHeader>
             <TableBody>
                 {forecastPage.forecasts.map((f) => (
                   <TableRow key={f.product_id}>
                     <TableCell className="text-left product">{f.name}</TableCell>
+                    <TableCell className="text-right qty">{f.current_qty.toLocaleString("en-US")}</TableCell>
                     <TableCell className="text-center days">
                       {formatDays(f.days_until_stockout)}
                     </TableCell>
                     <TableCell className="text-right restock">
                       {f.recommended_restock_qty.toLocaleString("en-US")}
+                    </TableCell>
+                    <TableCell className="text-right rp">{f.reorder_point}</TableCell>
+                    <TableCell className="text-center lt">{f.lead_time_days} d</TableCell>
+                    <TableCell className="text-center ai">
+                      {f.ai_refined ? <Badge variant="secondary">AI</Badge> : "—"}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -480,7 +491,7 @@ export function DashboardPage() {
             </Table>
             {forecastPage.forecasts.length > 0 && (
               <p className="mt-2 text-xs text-muted-foreground">
-                Based on recent stock movement trends (linear regression)
+                Regression on recent stock movements; "AI" marks rows refined by the LLM
               </p>
             )}
             {forecastPage.total > 0 && (

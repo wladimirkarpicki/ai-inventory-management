@@ -119,8 +119,12 @@ export interface AuthResponse {
 export interface ForecastRow {
   product_id: number
   name: string
+  current_qty: number
   days_until_stockout: number | null
   recommended_restock_qty: number
+  reorder_point: number
+  lead_time_days: number
+  ai_refined: boolean
 }
 
 export interface ForecastPage {
