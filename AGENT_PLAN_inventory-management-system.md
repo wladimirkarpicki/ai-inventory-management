@@ -1,10 +1,10 @@
 # Agent Plan — inventory-management-system
-Last updated: 2026-10-24 14:25
+Last updated: 2026-10-24 15:00
 Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-10-24 13:00 (= Last updated глобала при последней сверке)
 Роль: проектный агент (inventory-management-system) — работа с кодинг-сабагентами; задачи — от главного агента (Team Lead) или пользователя.
 
 ## Status
-- Active focus: список P18–P22 выполнен полностью (main d4fd531, контейнер на P21-сборке C_Be87Pk); фронт-тесты 12/12; ждём новых задач от пользователя
+- Active focus: P23 (dynamics v2 + скроллбар-фикс + порядок хедера) слит в main (1690ca0, бэкап убран из git c6cdf70); контейнер пересобирается; ждём фидбэка по «степперу» (диагноз: overflow-x-auto скроллбар)
 - Blocked: —
 - Risks: дубли товаров ИСПРАВЛЕНЫ (P18: 2008→1004, UNIQUE(brand_id, lower(name))); бэкап до дедупа — backup_before_dedupe.sql (не в git); Docker data disk чинился e2fsck 23.10 — при повторных падениях демона см. ENVIRONMENT.md
 
@@ -32,6 +32,7 @@ Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-1
 | P20 | Products UX: фильтр + сортировка по колонкам + стр. 15 | ✅ merged (8ed9c03) | feat/products-ux (f3ea106) | `GET /api/products?low_stock_only=true` → только qty<rp; `pnpm test` → 0 failed | бекенд: low_stock_only, SORT_COLUMNS +rp/lt, PAGE_SIZE 15; UI: toggle «Below reorder point», кликабельные заголовки со стрелкой направления (Select+direction убраны); live: 15/стр, 67 страниц, 101 позиция ниже rp, 0 нарушений |
 | P21 | Forecast: stock/rp/lt/AI-бейдж в таблице | ✅ merged (493830e) | feat/forecast-badges (f07e7c4) | forecast rows содержат reorder_point/lead_time_days | строки прогноза несут rp/lt (кнопки расчёта); UI: колонки Stock/Reorder point/Lead time + бейдж «AI» у LLM-уточнённых строк; live: ключи в ответе подтверждены |
 | P22 | vitest для дашборда | ✅ merged (d4fd531) | feat/ui-tests (9563001) | `pnpm test` → 12 passed / 0 failed | DashboardPage.test.tsx: 5 табов, ленивая загрузка, пейджер (диапазоны + disabled), колонки low-stock; мок @/api по URL, ResizeObserver-stub |
+| P23 | Stock dynamics v2 + скроллбар-степпер + порядок хедера | ✅ merged (1690ca0) | feat/dynamics-revamp (1e47712) | `pytest` → 88/0; `pnpm test` → 12/12 | «степпер ▲▼» = скроллбар overflow-x-auto (двигал табы) → табы теперь переносятся (flex-wrap), хедер тоже; Brands перед Products; Dynamics: под-табы Flow (ComposedChart + 7-дн. скользящее среднее, KPI + Avg daily out + Peak day) / Top movers (GET /api/movements/top, два топ-10) / Daily detail (net + cumulative); +3 теста эндпоинта |
 
 ## Task details (нетривиальные)
 
@@ -69,6 +70,13 @@ Scope: DashboardPage.test.tsx — 4 теста; мок @/api per-URL; ResizeObse
 AC: `pnpm test` → 0 failed (12 тестов в 5 файлах).
 Verification: `pnpm test` → 12 passed.
 Constraints: Recharts-график не тестируется (обход — не открываем Dynamics-таб в тестах).
+
+### P23 — Stock dynamics v2 + скроллбар-степпер + порядок хедера
+Goal: убрать «степпер» (скроллбар overflow-x-auto в строке табов, двигавший табы), сделать Dynamics информативной (под-табы, больше метрик), поменять порядок кнопок хедера.
+Scope: nav flex-wrap в DashboardPage и layout (скроллбары исчезают), Brands перед Products; Dynamics: под-табы Flow/Top movers/Daily detail, ComposedChart + линия 7-дн. среднего, KPI Avg daily out + Peak day; бекенд GET /api/movements/top (лидерборды in/out за окно); +3 теста.
+AC: `pytest` → 0 failed; `pnpm test` → 0 failed; таб-навигация не скроллится.
+Verification: `python -m pytest tests/` → 88 passed; `pnpm test` → 12 passed; `pnpm build` → exit 0.
+Constraints: recharts ComposedChart вместо BarChart (Line поверх баров); rolling average и cumulative считаются на клиенте из daily-данных; pg_dump-бэкап держать вне git (.gitignore).
 
 ## Decisions
 - 2026-10-18 — v2-шаблон: процессные секции вынести в глобальный AGENTS.md, план хранит состояние. (Глобал создан 2026-10-19 — путь в Process-строке шапки; процессные секции ниже временные, убрать при ближайшей сверке Synced.)
@@ -123,4 +131,5 @@ Constraints: Recharts-график не тестируется (обход — �
 - ✅ P20 (2026-10-24) — Products UX: low_stock_only-фильтр, кликабельные сортируемые заголовки, страница 15; live 101 позиция ниже rp (merged 8ed9c03)
 - ✅ P21 (2026-10-24) — Forecast: reorder_point/lead_time_days в строках + колонки и AI-бейдж в UI (merged 493830e)
 - ✅ P22 (2026-10-24) — vitest: 4 теста DashboardPage (табы/ленивость/пейджер/колонки), фронт-сьют 12/12 (merged d4fd531)
+- ✅ P23 (2026-10-24) — скроллбар-степпер убран (flex-wrap в двух навигациях), Brands→Products в хедере, Dynamics v2: Flow+Top movers+Daily detail, KPI-расширение; pytest 88/0, vitest 12/12 (merged 1690ca0)
 - ✅ LIVE SMOKE P10–P14 (2026-10-22 19:45, lead, task-6): rebuild после падения демона (docker desktop start); /api/ready 200; миграция 002 в контейнерной БД (reorder_point=10/lead_time_days=7); /api/products — оба поля в items; forecast ×2 байт-идентичны за 0.0s, в логах ровно один openrouter: refining (модель openrouter/free) → «failed: response was not a JSON array — regression fallback» (free-pool лотерея, регрессия сохранена) — P11-кэш-хит доказан; /api/movements/daily 200 (29 items); /api/export/movements.csv 200 text/csv attachment (33 строки); все 6 UI-строк в бандле (Reorder point, Lead time (days), Export CSV, Stock dynamics (30 days), Units in/out); smoke-юзер удалён; finding F1 задокументирован в Risks
