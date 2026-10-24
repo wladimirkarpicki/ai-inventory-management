@@ -154,6 +154,11 @@ class ProductIn(BaseModel):
     reason: str | None = Field(default=None, max_length=200)
 
 
+class OrderIn(BaseModel):
+    product_id: int
+    qty: int = Field(gt=0)
+
+
 # ---------------------------------------------------------------- helpers
 
 
@@ -1204,6 +1209,158 @@ def low_stock_list(
         ],
         "total": total,
     }
+
+
+# ---------------------------------------------------------------- orders (P25)
+
+
+@app.post("/api/orders")
+def create_order(
+    data: OrderIn,
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+) -> dict:
+    """
+    Register a purchase order. The expected arrival date is derived from
+    the product's supplier lead time at creation.
+    """
+
+    product = db.execute(
+        "SELECT name, lead_time_days FROM products WHERE id = %s", (data.product_id,)
+    ).fetchone()
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found.")
+
+    row = db.execute(
+        "INSERT INTO orders (product_id, qty, status, expected_at) "
+        "VALUES (%s, %s, 'ordered', now() + make_interval(days => %s)) "
+        "RETURNING id, created_at, expected_at",
+        (data.product_id, data.qty, product[1]),
+    ).fetchone()
+    db.commit()
+
+    return {
+        "id": row[0],
+        "product_id": data.product_id,
+        "product_name": product[0],
+        "qty": data.qty,
+        "status": "ordered",
+        "created_at": row[1].isoformat(),
+        "expected_at": row[2].isoformat(),
+        "received_at": None,
+    }
+
+
+@app.get("/api/orders")
+def list_orders(
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+    status: str = "",
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    """
+    Purchase orders, newest first, optionally filtered by status.
+    """
+
+    if status not in ("", "ordered", "received", "cancelled"):
+        raise HTTPException(status_code=400, detail="Invalid status filter.")
+
+    where = "WHERE (%s = '' OR o.status = %s)"
+    total = db.execute(  # type: ignore[index]  # single-row query by construction
+        f"SELECT COUNT(*) FROM orders o {where}", (status, status)
+    ).fetchone()[0]
+    rows = db.execute(
+        "SELECT o.id, o.product_id, p.name, o.qty, o.status, "
+        "o.created_at, o.expected_at, o.received_at "
+        "FROM orders o JOIN products p ON p.id = o.product_id "
+        f"{where} "
+        "ORDER BY o.created_at DESC, o.id DESC LIMIT %s OFFSET %s",
+        (status, status, limit, offset),
+    ).fetchall()
+
+    return {
+        "items": [
+            {
+                "id": r[0],
+                "product_id": r[1],
+                "product_name": r[2],
+                "qty": r[3],
+                "status": r[4],
+                "created_at": r[5].isoformat(),
+                "expected_at": r[6].isoformat(),
+                "received_at": r[7].isoformat() if r[7] is not None else None,
+            }
+            for r in rows
+        ],
+        "total": total,
+    }
+
+
+@app.post("/api/orders/{order_id}/receive")
+def receive_order(
+    order_id: int,
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+) -> dict:
+    """
+    Mark an order as received: the ordered quantity lands in stock and a
+    matching 'purchase_order' movement is recorded in the same
+    transaction, so Recent movements, Dynamics and the forecast all
+    update together (P8/P11 integration).
+    """
+
+    order = db.execute(
+        "SELECT product_id, qty, status FROM orders WHERE id = %s", (order_id,)
+    ).fetchone()
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    if order[2] != "ordered":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Order is {order[2]!r}, not open for receiving.",
+        )
+
+    db.execute(
+        "UPDATE products SET quantity = COALESCE(quantity, 0) + %s WHERE id = %s",
+        (order[1], order[0]),
+    )
+    _record_stock_movement(db, order[0], order[1], "purchase_order")
+    db.execute(
+        "UPDATE orders SET status = 'received', received_at = now() WHERE id = %s",
+        (order_id,),
+    )
+    db.commit()
+    _invalidate_forecast_cache()
+
+    return {"ok": True}
+
+
+@app.post("/api/orders/{order_id}/cancel")
+def cancel_order(
+    order_id: int,
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+) -> dict:
+    """Cancel an open order. Received orders are final."""
+
+    order = db.execute(
+        "SELECT status FROM orders WHERE id = %s", (order_id,)
+    ).fetchone()
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    if order[0] != "ordered":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Order is {order[0]!r}, only open orders can be cancelled.",
+        )
+
+    db.execute(
+        "UPDATE orders SET status = 'cancelled' WHERE id = %s", (order_id,)
+    )
+    db.commit()
+
+    return {"ok": True}
 
 
 @app.get("/api/movements/top")

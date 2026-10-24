@@ -7,8 +7,10 @@ import {
   HistoryIcon,
   LineChartIcon,
   PackageIcon,
+  PlusIcon,
   TagsIcon,
   TriangleAlertIcon,
+  TruckIcon,
   BarChart2,
 } from "lucide-react"
 import {
@@ -31,6 +33,9 @@ import {
   type ForecastPage,
   type LowStockPage,
   type MovementPage,
+  type OrderPage,
+  type OrderRow,
+  type Product,
   type RecommendationPage,
   type Stats,
   type TopMovers,
@@ -45,6 +50,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableHeader, TableRow, TableCell, TableBody } from "@/components/ui/table"
 
@@ -150,7 +165,7 @@ export function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const [activeTab, setActiveTab] = useState<"forecast" | "recommendations" | "dynamics" | "movements" | "lowstock">("forecast")
+  const [activeTab, setActiveTab] = useState<"forecast" | "recommendations" | "dynamics" | "movements" | "lowstock" | "orders">("forecast")
 
   const [forecastPage, setForecastPage] = useState<ForecastPage | null>(null)
   const [forecastOffset, setForecastOffset] = useState(0)
@@ -168,6 +183,19 @@ export function DashboardPage() {
 
   const [lowStockPage, setLowStockPage] = useState<LowStockPage | null>(null)
   const [lowStockOffset, setLowStockOffset] = useState(0)
+
+  const [ordersPage, setOrdersPage] = useState<OrderPage | null>(null)
+  const [ordersOffset, setOrdersOffset] = useState(0)
+  const [ordersVersion, setOrdersVersion] = useState(0)
+  const [orderBusy, setOrderBusy] = useState(false)
+
+  // New-order dialog state: product typeahead + qty.
+  const [orderOpen, setOrderOpen] = useState(false)
+  const [orderSearch, setOrderSearch] = useState("")
+  const [orderResults, setOrderResults] = useState<Product[]>([])
+  const [orderProductId, setOrderProductId] = useState<number | null>(null)
+  const [orderProductName, setOrderProductName] = useState("")
+  const [orderQty, setOrderQty] = useState("10")
 
   useEffect(() => {
     api<Stats>("/api/dashboard/stats")
@@ -279,6 +307,76 @@ export function DashboardPage() {
       cancelled = true
     }
   }, [lowStockOffset, activeTab])
+
+  useEffect(() => {
+    if (activeTab !== "orders") return
+
+    let cancelled = false
+    api<OrderPage>(`/api/orders?limit=${PAGE_LIMIT}&offset=${ordersOffset}`)
+      .then((data) => {
+        if (!cancelled) setOrdersPage(data)
+      })
+      .catch((err) => {
+        console.error("Orders error:", err)
+        if (!cancelled) setOrdersPage(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [ordersOffset, ordersVersion, activeTab])
+
+  async function createOrder(productId: number, qty: number, name: string) {
+    try {
+      await api("/api/orders", {
+        method: "POST",
+        body: { product_id: productId, qty },
+      })
+      toast.success(`Order created: ${qty} × ${name}`)
+      setOrdersVersion((v) => v + 1)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create order.")
+    }
+  }
+
+  async function orderAction(order: OrderRow, action: "receive" | "cancel") {
+    setOrderBusy(true)
+    try {
+      await api(`/api/orders/${order.id}/${action}`, { method: "POST" })
+      toast.success(
+        action === "receive"
+          ? `Received ${order.qty} × ${order.product_name} — stock updated`
+          : `Order for ${order.product_name} cancelled`
+      )
+      setOrdersVersion((v) => v + 1)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Action failed.")
+    } finally {
+      setOrderBusy(false)
+    }
+  }
+
+  async function searchOrderProducts(term: string) {
+    if (!term.trim()) {
+      setOrderResults([])
+      return
+    }
+    try {
+      const data = await api<{ items: Product[] }>(
+        `/api/products?search=${encodeURIComponent(term)}`
+      )
+      setOrderResults(data.items.slice(0, 5))
+    } catch {
+      setOrderResults([])
+    }
+  }
+
+  function resetOrderDraft() {
+    setOrderSearch("")
+    setOrderResults([])
+    setOrderProductId(null)
+    setOrderProductName("")
+    setOrderQty("10")
+  }
 
   const dynamicsTotalIn = daily?.reduce((sum, d) => sum + d.in_qty, 0) ?? 0
   const dynamicsTotalOut = daily?.reduce((sum, d) => sum + d.out_qty, 0) ?? 0
@@ -499,6 +597,19 @@ export function DashboardPage() {
             <TriangleAlertIcon className="size-4" />
             Low stock
           </button>
+          <button
+            role="tab"
+            aria-selected={activeTab === "orders"}
+            onClick={() => setActiveTab("orders")}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+              activeTab === "orders"
+                ? "border-primary text-primary"
+                : "text-muted-foreground hover:text-foreground hover:border-muted"
+            }`}
+          >
+            <TruckIcon className="size-4" />
+            Orders
+          </button>
         </nav>
       </div>
 
@@ -572,6 +683,7 @@ export function DashboardPage() {
                     <TableCell className="text-right qty">Current</TableCell>
                     <TableCell className="text-right restock">Rec. qty</TableCell>
                     <TableCell className="text-center days">Days empty</TableCell>
+                    <TableCell className="w-20" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -582,6 +694,23 @@ export function DashboardPage() {
                       <TableCell className="text-right restock">{r.recommended_qty.toLocaleString("en-US")}</TableCell>
                       <TableCell className="text-center days">
                         {formatDays(r.estimated_days_until_empty)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          title={`Create a purchase order for ${r.recommended_qty} × ${r.name}`}
+                          onClick={() =>
+                            void createOrder(
+                              r.product_id,
+                              Math.max(1, r.recommended_qty),
+                              r.name
+                            )
+                          }
+                        >
+                          <TruckIcon />
+                          Order
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -896,6 +1025,7 @@ export function DashboardPage() {
                     <TableCell className="text-left product">Product</TableCell>
                     <TableCell className="text-right qty">Remaining</TableCell>
                     <TableCell className="text-right restock">Reorder point</TableCell>
+                    <TableCell className="w-20" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -904,6 +1034,23 @@ export function DashboardPage() {
                       <TableCell className="text-left product">{item.name}</TableCell>
                       <TableCell className="text-right qty">{item.remaining_qty.toLocaleString("en-US")}</TableCell>
                       <TableCell className="text-right restock">{item.reorder_point.toLocaleString("en-US")}</TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          title={`Order ${Math.max(1, item.reorder_point - item.remaining_qty)} × ${item.name} (up to the reorder point)`}
+                          onClick={() =>
+                            void createOrder(
+                              item.product_id,
+                              Math.max(1, item.reorder_point - item.remaining_qty),
+                              item.name
+                            )
+                          }
+                        >
+                          <TruckIcon />
+                          Order
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -930,6 +1077,214 @@ export function DashboardPage() {
           </p>
         </div>
       )}
+
+      {activeTab === "orders" && ordersPage !== null && (
+        <div className="mt-6">
+          <div className="flex justify-end mb-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                resetOrderDraft()
+                setOrderOpen(true)
+              }}
+            >
+              <PlusIcon />
+              New order
+            </Button>
+          </div>
+          {ordersPage.items.length > 0 ? (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableCell className="text-left product">Product</TableCell>
+                    <TableCell className="text-right qty">Qty</TableCell>
+                    <TableCell className="text-center">Status</TableCell>
+                    <TableCell className="text-right">Created</TableCell>
+                    <TableCell className="text-right">Expected</TableCell>
+                    <TableCell className="w-24" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {ordersPage.items.map((o) => {
+                    const overdue =
+                      o.status === "ordered" &&
+                      new Date(o.expected_at).getTime() < Date.now()
+                    return (
+                      <TableRow key={o.id}>
+                        <TableCell className="text-left product">{o.product_name}</TableCell>
+                        <TableCell className="text-right qty tabular-nums">{o.qty}</TableCell>
+                        <TableCell className="text-center">
+                          {o.status === "received" && (
+                            <Badge variant="secondary">received</Badge>
+                          )}
+                          {o.status === "cancelled" && (
+                            <Badge variant="outline">cancelled</Badge>
+                          )}
+                          {o.status === "ordered" && (
+                            <Badge variant={overdue ? "destructive" : "default"}>
+                              {overdue ? "overdue" : "ordered"}
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right timestamp">
+                          {formatTimestamp(o.created_at)}
+                        </TableCell>
+                        <TableCell className="text-right timestamp">
+                          {o.status === "received" && o.received_at
+                            ? formatTimestamp(o.received_at)
+                            : formatTimestamp(o.expected_at)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {o.status === "ordered" && (
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={`Receive ${o.product_name}`}
+                                title="Mark received — adds stock and records a movement"
+                                disabled={orderBusy}
+                                onClick={() => void orderAction(o, "receive")}
+                              >
+                                <PackageIcon />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={`Cancel ${o.product_name}`}
+                                title="Cancel order"
+                                disabled={orderBusy}
+                                onClick={() => void orderAction(o, "cancel")}
+                              >
+                                <TriangleAlertIcon />
+                              </Button>
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+              {ordersPage.total > 0 && (
+                <Pager
+                  offset={ordersOffset}
+                  total={ordersPage.total}
+                  onOffsetChange={setOrdersOffset}
+                />
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No purchase orders yet — create one from the Recommendations or
+              Low stock tab, or with the New order button.
+            </p>
+          )}
+        </div>
+      )}
+
+      {activeTab === "orders" && ordersPage === null && (
+        <div className="mt-6 p-4 bg-muted rounded">
+          <p className="text-sm">
+            <span className="animate-pulse h-4 w-6 rounded mr-2" />
+            Orders unavailable
+          </p>
+        </div>
+      )}
+
+      <Dialog open={orderOpen} onOpenChange={(open) => { setOrderOpen(open); if (!open) resetOrderDraft() }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New purchase order</DialogTitle>
+            <DialogDescription>
+              Pick a product and the quantity to order from the supplier.
+              The expected arrival is derived from the product's lead time.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (orderProductId === null) return
+              const qty = Number(orderQty)
+              if (!Number.isInteger(qty) || qty < 1) return
+              void createOrder(orderProductId, qty, orderProductName).then(() => {
+                setOrderOpen(false)
+                resetOrderDraft()
+              })
+            }}
+            className="grid gap-4"
+          >
+            <div className="grid gap-2">
+              <Label htmlFor="order-search">Product</Label>
+              <Input
+                id="order-search"
+                value={orderSearch}
+                placeholder="Search by product or brand name…"
+                onChange={(e) => {
+                  setOrderSearch(e.target.value)
+                  void searchOrderProducts(e.target.value)
+                }}
+              />
+              {orderResults.length > 0 && (
+                <div className="max-h-40 overflow-auto rounded border divide-y">
+                  {orderResults.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
+                        setOrderProductId(p.id)
+                        setOrderProductName(p.name)
+                        setOrderResults([])
+                        setOrderSearch(p.name)
+                      }}
+                      className={`block w-full px-3 py-1.5 text-left text-sm transition-colors ${
+                        orderProductId === p.id
+                          ? "bg-accent text-accent-foreground"
+                          : "hover:bg-accent/50"
+                      }`}
+                    >
+                      {p.name} <span className="text-muted-foreground">({p.brand})</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {orderProductId !== null && (
+                <p className="text-xs text-muted-foreground">
+                  Selected: <strong className="text-foreground">{orderProductName}</strong>
+                </p>
+              )}
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="order-qty">Quantity</Label>
+              <Input
+                id="order-qty"
+                type="number"
+                min="1"
+                step="1"
+                value={orderQty}
+                onChange={(e) => setOrderQty(e.target.value)}
+                required
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setOrderOpen(false)
+                  resetOrderDraft()
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={orderProductId === null}>
+                Create order
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
