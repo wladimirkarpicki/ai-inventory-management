@@ -108,8 +108,7 @@ def main() -> None:
         movements,
     )
     conn.commit()
-    print(f"seeded {len(movements)} movements over {DAYS} days "
-          f"for {len(product_ids)} products")
+    print(f"seeded {len(movements)} movements over {DAYS} days for {len(product_ids)} products")
     conn.close()
 
 
