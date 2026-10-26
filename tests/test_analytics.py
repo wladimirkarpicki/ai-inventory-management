@@ -205,10 +205,16 @@ def test_forecast_structure_with_no_movements(api, admin_api, db_connection):
     assert f["product_id"] == product_id
     assert f["current_qty"] == 10
     assert set(f) == {
-        "product_id", "name", "current_qty",
-        "days_until_stockout", "recommended_restock_qty",
-        "daily_consumption_rate", "daily_net_rate",
-        "reorder_point", "lead_time_days", "ai_refined",
+        "product_id",
+        "name",
+        "current_qty",
+        "days_until_stockout",
+        "recommended_restock_qty",
+        "daily_consumption_rate",
+        "daily_net_rate",
+        "reorder_point",
+        "lead_time_days",
+        "ai_refined",
     }
     # No movements → no trend: null days (the old 9999 sentinel is gone)
     assert f["daily_consumption_rate"] == 0.0
@@ -299,9 +305,15 @@ def test_forecast_stable_stock_has_no_stockout(api, admin_api, db_connection):
 
 def test_forecast_sorted_and_paginated(api, admin_api, db_connection):
     # Fast depletes in ~5 days, Slow in ~10 days, Idle has no consumption.
-    _b, pid_fast = _insert_brand_product(db_connection, brand_name="FastCo", product_name="Fast", qty=10)
-    _b, pid_slow = _insert_brand_product(db_connection, brand_name="SlowCo", product_name="Slow", qty=10)
-    _b, pid_idle = _insert_brand_product(db_connection, brand_name="IdleCo", product_name="Idle", qty=42)
+    _b, pid_fast = _insert_brand_product(
+        db_connection, brand_name="FastCo", product_name="Fast", qty=10
+    )
+    _b, pid_slow = _insert_brand_product(
+        db_connection, brand_name="SlowCo", product_name="Slow", qty=10
+    )
+    _b, pid_idle = _insert_brand_product(
+        db_connection, brand_name="IdleCo", product_name="Idle", qty=42
+    )
     _insert_movements(db_connection, pid_fast, qty_per_day=-2, days=5)
     _insert_movements(db_connection, pid_slow, qty_per_day=-1, days=5)
 
@@ -353,17 +365,23 @@ def test_llm_skips_without_key(api, admin_api, db_connection, capsys):
 def test_llm_success_refines_by_product_id(api, admin_api, db_connection, monkeypatch, capsys):
     monkeypatch.setenv("NVIDIA_API_KEY", "test-key")
     monkeypatch.setenv("NVIDIA_MODEL", "test-model")
-    _b, pid_a = _insert_brand_product(db_connection, brand_name="RefACo", product_name="RefA", qty=10)
-    _b, pid_b = _insert_brand_product(db_connection, brand_name="RefBCo", product_name="RefB", qty=10)
+    _b, pid_a = _insert_brand_product(
+        db_connection, brand_name="RefACo", product_name="RefA", qty=10
+    )
+    _b, pid_b = _insert_brand_product(
+        db_connection, brand_name="RefBCo", product_name="RefB", qty=10
+    )
     _insert_movements(db_connection, pid_a, qty_per_day=-2, days=5)
     _insert_movements(db_connection, pid_b, qty_per_day=-1, days=5)
 
     def fake_urlopen(req, timeout=None):
         # Deliberately shuffled: refinement must map by product_id, not by index.
-        content = json.dumps([
-            {"product_id": pid_b, "days_until_stockout": 3, "recommended_restock_qty": 99},
-            {"product_id": pid_a, "days_until_stockout": 7, "recommended_restock_qty": 55},
-        ])
+        content = json.dumps(
+            [
+                {"product_id": pid_b, "days_until_stockout": 3, "recommended_restock_qty": 99},
+                {"product_id": pid_a, "days_until_stockout": 7, "recommended_restock_qty": 55},
+            ]
+        )
         return _FakeLlmResponse({"choices": [{"message": {"content": content}}]})
 
     monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
@@ -412,9 +430,15 @@ def test_llm_success_with_markdown_fence(api, admin_api, db_connection, monkeypa
     def fake_urlopen(req, timeout=None):
         content = (
             "```json\n"
-            + json.dumps([
-                {"product_id": product_id, "days_until_stockout": 4, "recommended_restock_qty": 12},
-            ])
+            + json.dumps(
+                [
+                    {
+                        "product_id": product_id,
+                        "days_until_stockout": 4,
+                        "recommended_restock_qty": 12,
+                    },
+                ]
+            )
             + "\n```"
         )
         return _FakeLlmResponse({"choices": [{"message": {"content": content}}]})
@@ -437,9 +461,11 @@ def test_llm_success_with_prose_preamble(api, admin_api, db_connection, monkeypa
     _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
 
     def fake_urlopen(req, timeout=None):
-        payload = json.dumps([
-            {"product_id": product_id, "days_until_stockout": 6, "recommended_restock_qty": 21},
-        ])
+        payload = json.dumps(
+            [
+                {"product_id": product_id, "days_until_stockout": 6, "recommended_restock_qty": 21},
+            ]
+        )
         content = f"Sure! Reviewing the trends first.\nHere is the refined array: {payload}"
         return _FakeLlmResponse({"choices": [{"message": {"content": content}}]})
 
@@ -512,7 +538,9 @@ def test_llm_429_sets_cooldown_and_falls_back(api, admin_api, db_connection, mon
     assert "llm: cooldown active after 429, skipping refine" in out
 
 
-def test_llm_cooldown_expires_and_refine_resumes(api, admin_api, db_connection, monkeypatch, capsys):
+def test_llm_cooldown_expires_and_refine_resumes(
+    api, admin_api, db_connection, monkeypatch, capsys
+):
     monkeypatch.setenv("NVIDIA_API_KEY", "test-key")
     _brand_id, product_id = _insert_brand_product(db_connection, product_name="Resumed", qty=10)
     _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
@@ -521,9 +549,11 @@ def test_llm_cooldown_expires_and_refine_resumes(api, admin_api, db_connection, 
     main_module._llm_state["cooldown_until"] = time.monotonic() - 1
 
     def fake_urlopen(req, timeout=None):
-        content = json.dumps([
-            {"product_id": product_id, "days_until_stockout": 4, "recommended_restock_qty": 21},
-        ])
+        content = json.dumps(
+            [
+                {"product_id": product_id, "days_until_stockout": 4, "recommended_restock_qty": 21},
+            ]
+        )
         return _FakeLlmResponse({"choices": [{"message": {"content": content}}]})
 
     monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
@@ -556,7 +586,10 @@ def test_llm_content_none_falls_back(api, admin_api, db_connection, monkeypatch,
     f = response.json()["forecasts"][0]
     assert f["ai_refined"] is False
     assert f["days_until_stockout"] == 5  # regression value kept
-    assert "llm: failed: response was not a JSON array — regression fallback" in capsys.readouterr().out
+    assert (
+        "llm: failed: response was not a JSON array — regression fallback"
+        in capsys.readouterr().out
+    )
 
 
 def test_llm_stalled_connection_is_bounded(api, admin_api, db_connection, monkeypatch, capsys):
@@ -621,9 +654,7 @@ def test_recommendations_flag_open_orders(api, admin_api, db_connection):
     _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
 
     # Create an open purchase order for this product.
-    order = admin_api.post(
-        "/api/orders", json={"product_id": product_id, "qty": 12}
-    )
+    order = admin_api.post("/api/orders", json={"product_id": product_id, "qty": 12})
     assert order.status_code == 200
 
     response = admin_api.get("/api/recommendations")
@@ -648,9 +679,15 @@ def test_recommendations_sorted_by_urgency(api, admin_api, db_connection):
     # Fast depletes in ~5 days (< lead_time_days=7) → recommended;
     # Slow depletes in ~10 days (not < 7, qty=10 not < 10) → excluded;
     # LowNoTrend qty=2 (< reorder_point=10) → recommended.
-    _b, pid_fast = _insert_brand_product(db_connection, brand_name="RecFast", product_name="Fast", qty=10)
-    _b, pid_slow = _insert_brand_product(db_connection, brand_name="RecSlow", product_name="Slow", qty=10)
-    _b, pid_low = _insert_brand_product(db_connection, brand_name="RecLow", product_name="LowNoTrend", qty=2)
+    _b, pid_fast = _insert_brand_product(
+        db_connection, brand_name="RecFast", product_name="Fast", qty=10
+    )
+    _b, pid_slow = _insert_brand_product(
+        db_connection, brand_name="RecSlow", product_name="Slow", qty=10
+    )
+    _b, pid_low = _insert_brand_product(
+        db_connection, brand_name="RecLow", product_name="LowNoTrend", qty=2
+    )
     _insert_movements(db_connection, pid_fast, qty_per_day=-2, days=5)
     _insert_movements(db_connection, pid_slow, qty_per_day=-1, days=5)
 
@@ -675,7 +712,9 @@ def test_dashboard_stats_has_low_stock_alerts(api, admin_api, db_connection):
     _brand_id, product_id = _insert_brand_product(
         db_connection, brand_name="TestAlert", product_name="LowStock", qty=2
     )
-    _insert_brand_product(db_connection, brand_name="TestHealthyAlert", product_name="Healthy", qty=50)
+    _insert_brand_product(
+        db_connection, brand_name="TestHealthyAlert", product_name="Healthy", qty=50
+    )
 
     response = admin_api.get("/api/dashboard/stats")
 
@@ -771,7 +810,9 @@ def test_movements_top_requires_auth(api):
 
 def test_movements_top_leaderboards(api, admin_api, db_connection):
     _b1, pid_a = _insert_brand_product(db_connection, product_name="MoverA", qty=100)
-    _b2, pid_b = _insert_brand_product(db_connection, brand_name="MoverBrandB", product_name="MoverB", qty=100)
+    _b2, pid_b = _insert_brand_product(
+        db_connection, brand_name="MoverBrandB", product_name="MoverB", qty=100
+    )
     # A: steady consumption; B: one big restock wave.
     _insert_movements(db_connection, pid_a, qty_per_day=-5, days=4)
     _insert_movements(db_connection, pid_b, qty_per_day=20, days=3, reason="restock")

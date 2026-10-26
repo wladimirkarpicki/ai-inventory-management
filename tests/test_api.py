@@ -372,9 +372,7 @@ def test_products_low_stock_only_filter(api, admin_api):
     assert names == ["Below", "NoStock"]
 
     # The new sort key rides the same validated SORT_COLUMNS allowlist.
-    response = admin_api.get(
-        "/api/products", params={"sort": "reorder_point", "direction": "desc"}
-    )
+    response = admin_api.get("/api/products", params={"sort": "reorder_point", "direction": "desc"})
     rps = [i["reorder_point"] for i in response.json()["items"]]
     assert rps == [20, 10, 10, 10]
 
@@ -569,8 +567,7 @@ def test_products_unique_brand_lower_name_enforced_by_db(db_connection):
         cur.execute("INSERT INTO brands (name) VALUES ('IdxCo') RETURNING id")
         brand_id = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO products (brand_id, name, price, quantity) "
-            "VALUES (%s, 'Same', 1, 1)",
+            "INSERT INTO products (brand_id, name, price, quantity) VALUES (%s, 'Same', 1, 1)",
             (brand_id,),
         )
     db_connection.commit()
@@ -580,8 +577,7 @@ def test_products_unique_brand_lower_name_enforced_by_db(db_connection):
     with pytest.raises(psycopg.errors.UniqueViolation):
         with db_connection.cursor() as cur:
             cur.execute(
-                "INSERT INTO products (brand_id, name, price, quantity) "
-                "VALUES (%s, 'SAME', 1, 1)",
+                "INSERT INTO products (brand_id, name, price, quantity) VALUES (%s, 'SAME', 1, 1)",
                 (brand_id,),
             )
         db_connection.commit()
@@ -629,22 +625,16 @@ def test_create_order_derives_expected_from_lead_time(api, admin_api):
 
 
 def test_create_order_unknown_product_and_bad_qty(api, admin_api):
-    assert (
-        admin_api.post("/api/orders", json={"product_id": 999999, "qty": 5}).status_code
-        == 404
-    )
-    assert (
-        admin_api.post("/api/orders", json={"product_id": 1, "qty": 0}).status_code
-        == 422
-    )
+    assert admin_api.post("/api/orders", json={"product_id": 999999, "qty": 5}).status_code == 404
+    assert admin_api.post("/api/orders", json={"product_id": 1, "qty": 0}).status_code == 422
 
 
 def test_order_receive_adds_stock_and_records_movement(api, admin_api):
     product_id = _make_product(admin_api, "RecvOrder", qty=5)
 
-    order_id = admin_api.post(
-        "/api/orders", json={"product_id": product_id, "qty": 30}
-    ).json()["id"]
+    order_id = admin_api.post("/api/orders", json={"product_id": product_id, "qty": 30}).json()[
+        "id"
+    ]
 
     response = admin_api.post(f"/api/orders/{order_id}/receive")
     assert response.status_code == 200
@@ -667,9 +657,7 @@ def test_order_receive_adds_stock_and_records_movement(api, admin_api):
 
 def test_order_receive_twice_rejected(api, admin_api):
     product_id = _make_product(admin_api, "DoubleRecv")
-    order_id = admin_api.post(
-        "/api/orders", json={"product_id": product_id, "qty": 3}
-    ).json()["id"]
+    order_id = admin_api.post("/api/orders", json={"product_id": product_id, "qty": 3}).json()["id"]
 
     assert admin_api.post(f"/api/orders/{order_id}/receive").status_code == 200
     assert admin_api.post(f"/api/orders/{order_id}/receive").status_code == 400
@@ -677,9 +665,7 @@ def test_order_receive_twice_rejected(api, admin_api):
 
 def test_order_cancel_flow(api, admin_api):
     product_id = _make_product(admin_api, "CancelOrder")
-    order_id = admin_api.post(
-        "/api/orders", json={"product_id": product_id, "qty": 7}
-    ).json()["id"]
+    order_id = admin_api.post("/api/orders", json={"product_id": product_id, "qty": 7}).json()["id"]
 
     assert admin_api.post(f"/api/orders/{order_id}/cancel").status_code == 200
     # Cancelled orders cannot be received nor cancelled again.
