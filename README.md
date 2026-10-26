@@ -5,6 +5,8 @@
 
 A web-based inventory management application built with Python, FastAPI, PostgreSQL, and a React SPA frontend — with AI-powered demand forecasting, purchase-order management, and movement analytics.
 
+![Stock dynamics — Daily detail (dark theme)](docs/screenshots/dynamics_daily_dark.png)
+
 ## Features
 
 ### Core inventory
