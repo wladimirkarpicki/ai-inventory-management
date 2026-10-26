@@ -1716,12 +1716,14 @@ if _FRONTEND_DIST.is_dir():
     def spa(spa_path: str) -> FileResponse:
         """
         Serve a real file from dist, or fall back to index.html so
-        client-side routes like /login resolve on hard refresh.
+        client-side routes like /login resolve on hard refresh. The
+        resolved candidate must stay inside the dist tree (Path.is_relative_to
+        guards against ../ traversal).
         """
 
         candidate = (_FRONTEND_DIST / spa_path).resolve()
 
-        if spa_path and str(candidate).startswith(str(_FRONTEND_DIST)) and candidate.is_file():
+        if spa_path and candidate.is_relative_to(_FRONTEND_DIST) and candidate.is_file():
             return FileResponse(candidate)
 
         return FileResponse(_FRONTEND_DIST / "index.html")
