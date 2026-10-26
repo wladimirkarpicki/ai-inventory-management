@@ -634,8 +634,7 @@ def _record_stock_movement(
     """
 
     conn.execute(
-        "INSERT INTO stock_movements (product_id, in_out, qty, reason) "
-        "VALUES (%s, %s, %s, %s)",
+        "INSERT INTO stock_movements (product_id, in_out, qty, reason) VALUES (%s, %s, %s, %s)",
         (product_id, "in" if delta > 0 else "out", delta, reason),
     )
 
@@ -653,10 +652,13 @@ def create_product(
 
     # One product per (brand, case-insensitive name) — the DB enforces it
     # via idx_products_brand_lower_name; report it as a clean 400 (P18).
-    if db.execute(
-        "SELECT 1 FROM products WHERE brand_id = %s AND LOWER(name) = LOWER(%s)",
-        (data.brand_id, data.name),
-    ).fetchone() is not None:
+    if (
+        db.execute(
+            "SELECT 1 FROM products WHERE brand_id = %s AND LOWER(name) = LOWER(%s)",
+            (data.brand_id, data.name),
+        ).fetchone()
+        is not None
+    ):
         raise HTTPException(
             status_code=400,
             detail="A product with this name already exists for this brand.",
@@ -665,7 +667,14 @@ def create_product(
     row = db.execute(
         "INSERT INTO products (brand_id, name, price, quantity, reorder_point, lead_time_days) "
         "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-        (data.brand_id, data.name, Decimal(str(data.price)), data.quantity, data.reorder_point, data.lead_time_days),
+        (
+            data.brand_id,
+            data.name,
+            Decimal(str(data.price)),
+            data.quantity,
+            data.reorder_point,
+            data.lead_time_days,
+        ),
     ).fetchone()
     product_id = row[0]  # type: ignore[index]  # single-row query by construction
 
@@ -696,9 +705,7 @@ def update_product(
     user: dict = Depends(get_current_user),
     db: psycopg.Connection = Depends(get_db),
 ) -> dict:
-    current = db.execute(
-        "SELECT quantity FROM products WHERE id = %s", (product_id,)
-    ).fetchone()
+    current = db.execute("SELECT quantity FROM products WHERE id = %s", (product_id,)).fetchone()
 
     if current is None:
         raise HTTPException(status_code=404, detail="Product not found.")
@@ -711,11 +718,13 @@ def update_product(
     # Renaming into an existing (brand, case-insensitive name) pair is a
     # clean 400, not an IntegrityError (P18). The product's own row is
     # excluded, so a no-change PATCH still passes.
-    if db.execute(
-        "SELECT 1 FROM products "
-        "WHERE brand_id = %s AND LOWER(name) = LOWER(%s) AND id <> %s",
-        (data.brand_id, data.name, product_id),
-    ).fetchone() is not None:
+    if (
+        db.execute(
+            "SELECT 1 FROM products WHERE brand_id = %s AND LOWER(name) = LOWER(%s) AND id <> %s",
+            (data.brand_id, data.name, product_id),
+        ).fetchone()
+        is not None
+    ):
         raise HTTPException(
             status_code=400,
             detail="A product with this name already exists for this brand.",
@@ -819,8 +828,7 @@ def dashboard_stats(
         "low_stock": low_stock,
         "low_stock_threshold": LOW_STOCK_THRESHOLD,
         "low_stock_alerts": [
-            {"product_id": r[0], "name": r[1], "remaining_qty": r[2] or 0}
-            for r in low_stock_alerts
+            {"product_id": r[0], "name": r[1], "remaining_qty": r[2] or 0} for r in low_stock_alerts
         ],
     }
 
@@ -1087,7 +1095,9 @@ def _load_movements(db: psycopg.Connection) -> dict[int, list]:
     return series
 
 
-def _forecast_for_product(movements: list, current_qty: int, reorder_point: int = 10, lead_time_days: int = 7) -> dict:
+def _forecast_for_product(
+    movements: list, current_qty: int, reorder_point: int = 10, lead_time_days: int = 7
+) -> dict:
     slope = _daily_series(movements)
     if slope is None and movements:
         first_ts = movements[0][0]
@@ -1103,7 +1113,7 @@ def _forecast_for_product(movements: list, current_qty: int, reorder_point: int 
     else:
         days_until = None  # no consumption trend
     # Recommended restock = enough for lead-time + 10% safety, at least to threshold
-    needed = 0
+    needed = 0.0
     if daily_rate < 0:
         needed = abs(daily_rate) * lead_time_days * 1.1
     target = max(current_qty + needed, reorder_point)
@@ -1166,10 +1176,7 @@ def movements_daily(
         "GROUP BY 1 ORDER BY 1",
         (days,),
     ).fetchall()
-    items = [
-        {"date": r[0].isoformat(), "in_qty": r[1], "out_qty": r[2]}
-        for r in rows
-    ]
+    items = [{"date": r[0].isoformat(), "in_qty": r[1], "out_qty": r[2]} for r in rows]
     return {"items": items, "days": days}
 
 
@@ -1192,12 +1199,12 @@ def low_stock_list(
         "FROM products WHERE quantity < %s "
         "ORDER BY brand_id, LOWER(name), quantity ASC NULLS LAST"
     )
-    rows = db.execute(
+    rows = db.execute(  # nosec B608 — inner is a compile-time constant, no user input
         f"SELECT id, name, quantity, reorder_point FROM ({inner}) d "
         "ORDER BY quantity ASC NULLS LAST, name ASC LIMIT %s OFFSET %s",
         (LOW_STOCK_THRESHOLD, limit, offset),
     ).fetchall()
-    total = db.execute(  # type: ignore[index]  # single-row query by construction
+    total = db.execute(  # type: ignore[index]  # single-row query by construction  # nosec B608 — inner is a constant
         f"SELECT COUNT(*) FROM ({inner}) d", (LOW_STOCK_THRESHOLD,)
     ).fetchone()[0]
 
@@ -1244,13 +1251,13 @@ def create_order(
     db.commit()
 
     return {
-        "id": row[0],
+        "id": row[0],  # type: ignore[index]  # single-row query by construction
         "product_id": data.product_id,
         "product_name": product[0],
         "qty": data.qty,
         "status": "ordered",
-        "created_at": row[1].isoformat(),
-        "expected_at": row[2].isoformat(),
+        "created_at": row[1].isoformat(),  # type: ignore[index]  # single-row query by construction
+        "expected_at": row[2].isoformat(),  # type: ignore[index]  # single-row query by construction
         "received_at": None,
     }
 
@@ -1271,10 +1278,10 @@ def list_orders(
         raise HTTPException(status_code=400, detail="Invalid status filter.")
 
     where = "WHERE (%s = '' OR o.status = %s)"
-    total = db.execute(  # type: ignore[index]  # single-row query by construction
+    total = db.execute(  # type: ignore[index]  # single-row query by construction  # nosec B608 — where is a constant
         f"SELECT COUNT(*) FROM orders o {where}", (status, status)
     ).fetchone()[0]
-    rows = db.execute(
+    rows = db.execute(  # nosec B608 — where is a constant, all values parameterized
         "SELECT o.id, o.product_id, p.name, o.qty, o.status, "
         "o.created_at, o.expected_at, o.received_at "
         "FROM orders o JOIN products p ON p.id = o.product_id "
@@ -1348,9 +1355,7 @@ def cancel_order(
 ) -> dict:
     """Cancel an open order. Received orders are final."""
 
-    order = db.execute(
-        "SELECT status FROM orders WHERE id = %s", (order_id,)
-    ).fetchone()
+    order = db.execute("SELECT status FROM orders WHERE id = %s", (order_id,)).fetchone()
     if order is None:
         raise HTTPException(status_code=404, detail="Order not found.")
     if order[0] != "ordered":
@@ -1359,9 +1364,7 @@ def cancel_order(
             detail=f"Order is {order[0]!r}, only open orders can be cancelled.",
         )
 
-    db.execute(
-        "UPDATE orders SET status = 'cancelled' WHERE id = %s", (order_id,)
-    )
+    db.execute("UPDATE orders SET status = 'cancelled' WHERE id = %s", (order_id,))
     db.commit()
 
     return {"ok": True}
@@ -1397,12 +1400,8 @@ def movements_top(
 
     return {
         "days": days,
-        "top_in": [
-            {"product_id": r[0], "name": r[1], "in_qty": r[2]} for r in top_in
-        ],
-        "top_out": [
-            {"product_id": r[0], "name": r[1], "out_qty": r[3]} for r in top_out
-        ],
+        "top_in": [{"product_id": r[0], "name": r[1], "in_qty": r[2]} for r in top_in],
+        "top_out": [{"product_id": r[0], "name": r[1], "out_qty": r[3]} for r in top_out],
     }
 
 
@@ -1448,7 +1447,7 @@ def _fetch_llm_refinement(api_key: str, body: str) -> str:
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=LLM_TIMEOUT) as resp:
+    with urllib.request.urlopen(req, timeout=LLM_TIMEOUT) as resp:  # nosec B310 — fixed HTTPS URL, no user input
         text = resp.read().decode()
     result = json.loads(text)
     return result.get("choices", [{}])[0].get("message", {}).get("content") or ""
@@ -1489,25 +1488,27 @@ def _refine_forecasts_with_llm(forecasts: list) -> None:
     ]
     print(f"llm: refining {len(payload)} items (model={model})")
 
-    body = json.dumps({
-        "model": model,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are an inventory forecasting assistant. Given a JSON "
-                    "array of regression-based inventory forecasts (key fields: "
-                    "product_id, name, current_qty, days_until_stockout, "
-                    "recommended_restock_qty), refine predictions when sensible "
-                    "and output ONLY the same array with updated values and "
-                    "ai_refined=true. Keep values realistic; never invent new fields."
-                ),
-            },
-            {"role": "user", "content": f"Refine these forecasts\n{json.dumps(payload)}"},
-        ],
-        "max_tokens": 4000,
-        "temperature": 0.2,
-    })
+    body = json.dumps(
+        {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an inventory forecasting assistant. Given a JSON "
+                        "array of regression-based inventory forecasts (key fields: "
+                        "product_id, name, current_qty, days_until_stockout, "
+                        "recommended_restock_qty), refine predictions when sensible "
+                        "and output ONLY the same array with updated values and "
+                        "ai_refined=true. Keep values realistic; never invent new fields."
+                    ),
+                },
+                {"role": "user", "content": f"Refine these forecasts\n{json.dumps(payload)}"},
+            ],
+            "max_tokens": 4000,
+            "temperature": 0.2,
+        }
+    )
 
     # F1 guard: a DNS/connect stall can hang urlopen far beyond its own
     # timeout (observed ~25 min after a Docker daemon restart). The fetch
@@ -1533,7 +1534,7 @@ def _refine_forecasts_with_llm(forecasts: list) -> None:
             return
         if "error" in box:
             raise box["error"]
-        content = _extract_json_array(box.get("content"))
+        content = _extract_json_array(box.get("content") or "")
         refined = json.loads(content) if content else None
         if not isinstance(refined, list):
             print("llm: failed: response was not a JSON array — regression fallback")
@@ -1585,21 +1586,25 @@ def forecast(
         series = _load_movements(db)
         forecasts = []
         for pid, name, qty, rp, lt in rows:
-            res = _forecast_for_product(series.get(pid, []), qty or 0, reorder_point=rp, lead_time_days=lt)
-            forecasts.append({
-                "product_id": pid,
-                "name": name,
-                "current_qty": qty or 0,
-                "days_until_stockout": res["days_until_stockout"],
-                "recommended_restock_qty": res["recommended_restock_qty"],
-                "daily_consumption_rate": round(max(0, -res["daily_net_rate"]), 3),
-                "daily_net_rate": res["daily_net_rate"],
-                # P21: the per-product knobs the forecast was computed
-                # with, surfaced for the UI.
-                "reorder_point": rp,
-                "lead_time_days": lt,
-                "ai_refined": False,
-            })
+            res = _forecast_for_product(
+                series.get(pid, []), qty or 0, reorder_point=rp, lead_time_days=lt
+            )
+            forecasts.append(
+                {
+                    "product_id": pid,
+                    "name": name,
+                    "current_qty": qty or 0,
+                    "days_until_stockout": res["days_until_stockout"],
+                    "recommended_restock_qty": res["recommended_restock_qty"],
+                    "daily_consumption_rate": round(max(0, -res["daily_net_rate"]), 3),
+                    "daily_net_rate": res["daily_net_rate"],
+                    # P21: the per-product knobs the forecast was computed
+                    # with, surfaced for the UI.
+                    "reorder_point": rp,
+                    "lead_time_days": lt,
+                    "ai_refined": False,
+                }
+            )
         # Most urgent first: days until stockout ASC; no-consumption items last.
         forecasts.sort(
             key=lambda f: (
@@ -1642,24 +1647,27 @@ def recommendations(
     open_orders = {
         r[0]: r[1]
         for r in db.execute(
-            "SELECT product_id, SUM(qty) FROM orders "
-            "WHERE status = 'ordered' GROUP BY product_id"
+            "SELECT product_id, SUM(qty) FROM orders WHERE status = 'ordered' GROUP BY product_id"
         ).fetchall()
     }
     items = []
     for pid, name, qty, rp, lt in rows:
-        res = _forecast_for_product(series.get(pid, []), qty or 0, reorder_point=rp, lead_time_days=lt)
+        res = _forecast_for_product(
+            series.get(pid, []), qty or 0, reorder_point=rp, lead_time_days=lt
+        )
         days = res["days_until_stockout"]
         needs_restock = (qty is not None and qty < rp) or (days is not None and days < lt)
         if needs_restock:
-            items.append({
-                "product_id": pid,
-                "name": name,
-                "current_qty": qty or 0,
-                "recommended_qty": res["recommended_restock_qty"],
-                "estimated_days_until_empty": days,
-                "open_order_qty": open_orders.get(pid, 0),
-            })
+            items.append(
+                {
+                    "product_id": pid,
+                    "name": name,
+                    "current_qty": qty or 0,
+                    "recommended_qty": res["recommended_restock_qty"],
+                    "estimated_days_until_empty": days,
+                    "open_order_qty": open_orders.get(pid, 0),
+                }
+            )
     # Most urgent first: estimated days ASC; unknown depletion last.
     items.sort(
         key=lambda x: (
