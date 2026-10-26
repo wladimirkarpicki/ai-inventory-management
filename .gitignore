@@ -19,3 +19,5 @@ frontend/dist/
 *.tsbuildinfo
 
 backup_before_dedupe.sql
+
+.screenshot/
