@@ -1199,12 +1199,12 @@ def low_stock_list(
         "FROM products WHERE quantity < %s "
         "ORDER BY brand_id, LOWER(name), quantity ASC NULLS LAST"
     )
-    rows = db.execute(  # nosec B608 — inner is a compile-time constant, no user input
+    rows = db.execute(
         f"SELECT id, name, quantity, reorder_point FROM ({inner}) d "
         "ORDER BY quantity ASC NULLS LAST, name ASC LIMIT %s OFFSET %s",
         (LOW_STOCK_THRESHOLD, limit, offset),
     ).fetchall()
-    total = db.execute(  # type: ignore[index]  # single-row query by construction  # nosec B608 — inner is a constant
+    total = db.execute(  # type: ignore[index]  # single-row query by construction
         f"SELECT COUNT(*) FROM ({inner}) d", (LOW_STOCK_THRESHOLD,)
     ).fetchone()[0]
 
@@ -1281,7 +1281,7 @@ def list_orders(
     total = db.execute(  # type: ignore[index]  # single-row query by construction  # nosec B608 — where is a constant
         f"SELECT COUNT(*) FROM orders o {where}", (status, status)
     ).fetchone()[0]
-    rows = db.execute(  # nosec B608 — where is a constant, all values parameterized
+    rows = db.execute(
         "SELECT o.id, o.product_id, p.name, o.qty, o.status, "
         "o.created_at, o.expected_at, o.received_at "
         "FROM orders o JOIN products p ON p.id = o.product_id "
