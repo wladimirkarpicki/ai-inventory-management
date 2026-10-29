@@ -1,7 +1,7 @@
 # Inventory Management System
 
-[![Tests](https://github.com/wladimirkarpicki/inventory-management-system/actions/workflows/tests.yml/badge.svg)](https://github.com/wladimirkarpicki/inventory-management-system/actions/workflows/tests.yml)
-[![Security](https://github.com/wladimirkarpicki/inventory-management-system/actions/workflows/security.yml/badge.svg)](https://github.com/wladimirkarpicki/inventory-management-system/actions/workflows/security.yml)
+[![Tests](https://github.com/wladimirkarpicki/ai-inventory-management/actions/workflows/tests.yml/badge.svg)](https://github.com/wladimirkarpicki/ai-inventory-management/actions/workflows/tests.yml)
+[![Security](https://github.com/wladimirkarpicki/ai-inventory-management/actions/workflows/security.yml/badge.svg)](https://github.com/wladimirkarpicki/ai-inventory-management/actions/workflows/security.yml)
 
 A web-based inventory management application built with Python, FastAPI, PostgreSQL, and a React SPA frontend — with AI-powered demand forecasting, purchase-order management, and movement analytics.
 
@@ -56,8 +56,8 @@ A web-based inventory management application built with Python, FastAPI, Postgre
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/wladimirkarpicki/inventory-management-system.git
-cd inventory-management-system
+git clone https://github.com/wladimirkarpicki/ai-inventory-management.git
+cd ai-inventory-management
 ```
 
 2. Install Python dependencies:

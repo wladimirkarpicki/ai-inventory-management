@@ -1,7 +1,7 @@
-# Agent Plan — inventory-management-system
-Last updated: 2026-10-24 16:20
+# Agent Plan — ai-inventory-management
+Last updated: 2026-10-29 13:30
 Process: глобальный AGENTS.md — $DSH_HOME/AGENTS.md | Synced: 2026-10-25 20:33 (= Last updated глобала при последней сверке)
-Роль: проектный агент (inventory-management-system) — работа с кодинг-сабагентами; задачи — от главного агента (Team Lead) или пользователя.
+Роль: проектный агент (ai-inventory-management) — работа с кодинг-сабагентами; задачи — от главного агента (Team Lead) или пользователя.
 
 ## Status
 - Active focus: P24 (демо-данные) + P25 (Orders) слиты в main (941c049, 2e05842); миграция 004 применена к live-БД; контейнер пересобирается; ждём фидбэка + новые предложения отправлены пользователю
