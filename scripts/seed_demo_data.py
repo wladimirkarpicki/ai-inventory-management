@@ -65,7 +65,7 @@ def main() -> None:
                         price,
                         rng.randint(1, 100),
                         rng.randint(5, 30),  # varied reorder points
-                        rng.randint(3, 14),  # varied supplier lead times
+                        rng.randint(3, 14),  # varied lead times
                     ),
                 )
                 inserted += cur.rowcount
