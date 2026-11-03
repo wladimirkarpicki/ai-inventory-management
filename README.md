@@ -13,7 +13,8 @@ A web-based inventory management application built with Python, FastAPI, Postgre
 - User authentication — all pages require sign-in, with a first-run setup for the initial admin account
 - Admin-only user management: create users, change roles, reset passwords, delete accounts — with server-side safety rules
 - View, search, sort, and filter products; CSV export of the inventory
-- Add, edit, and delete products — with per-product **reorder point** and **supplier lead time**
+- **Inventory health report** — every product classified as OUT OF STOCK / LOW STOCK / IN STOCK against its own minimum quantity, with the recommended replenishment quantity, severity ordering, pagination and a CSV export
+- Add, edit, and delete products — with per-product **reorder point**, **minimum quantity** and **supplier lead time**
 - One product per (brand, case-insensitive name) — enforced at the database level
 - Manage brands: add, edit, and delete — brands that still have products cannot be deleted
 - Quick filter: **"Below reorder point"** shows only items whose stock has dipped under their threshold
@@ -42,7 +43,7 @@ A web-based inventory management application built with Python, FastAPI, Postgre
 - **Stock dynamics**: in/out bar chart with a 7-day rolling-average consumption line; **Top movers** leaderboards (biggest restocks / biggest consumption); **Daily detail** table with per-day net and running cumulative balance; 30/90-day period switcher; KPI strip (units in/out, net, avg daily out, peak day, active days)
 - **Low stock** tab: all below-threshold products, paginated, the most depleted first, with reorder point shown
 - **CSV export** of the full movement history
-- Paginated API for every list endpoint (limit/offset/total)
+- Paginated API for every list endpoint (limit/offset/total), including the inventory-health report (page/pages/total); only the CSV exports are full snapshots
 
 ## Technologies
 
@@ -197,7 +198,7 @@ pre-commit install
 - `main.py` — FastAPI JSON backend consumed by the SPA
 - `database.py` — reads `.env` and builds the PostgreSQL connection string
 - `schema.sql` — database schema for a fresh installation
-- `migrations/` — incremental schema changes (002 reorder points, 003 dedup + unique index, 004 orders)
+- `migrations/` — incremental schema changes (002 reorder points, 003 dedup + unique index, 004 orders, 005 min quantity)
 - `frontend/` — React 19 + TypeScript SPA (Vite, Tailwind CSS v4, shadcn/ui, Recharts)
 - `tests/` — pytest test suite (FastAPI API, analytics, orders)
 - `requirements.txt` — runtime dependencies
