@@ -4,10 +4,13 @@ import {
   ChevronDownIcon,
   KeyRoundIcon,
   LogOutIcon,
+  MoonIcon,
   PackageIcon,
+  SunIcon,
 } from "lucide-react"
 
 import { useAuth } from "@/auth"
+import { useTheme } from "@/theme"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -32,6 +35,7 @@ function initials(username: string | undefined): string {
 
 export function Layout({ children }: { children: ReactNode }) {
   const { user, signOut } = useAuth()
+  const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
 
   function handleSignOut() {
@@ -42,7 +46,7 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-svh bg-background">
       <header className="sticky top-0 z-10 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
-        <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-4">
+        <div className="mx-auto flex h-14 w-[64%] items-center gap-2 px-4 sm:px-6 lg:px-8">
           <Link
             to="/"
             className="flex shrink-0 items-center gap-2 rounded-md px-1.5 py-1 text-sm font-semibold tracking-tight"
@@ -61,6 +65,9 @@ export function Layout({ children }: { children: ReactNode }) {
             <NavLink to="/products" className={navLinkClass}>
               Products
             </NavLink>
+            <NavLink to="/inventory-health" className={navLinkClass}>
+              Inventory health
+            </NavLink>
             {user?.role === "admin" && (
               <NavLink to="/users" className={navLinkClass}>
                 Users
@@ -69,6 +76,21 @@ export function Layout({ children }: { children: ReactNode }) {
           </nav>
 
           <div className="ml-auto flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground"
+              aria-label="Toggle theme"
+              title={
+                theme === "dark"
+                  ? "Switch to light theme"
+                  : "Switch to dark theme"
+              }
+              onClick={toggleTheme}
+            >
+              {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+            </Button>
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="gap-2 px-1.5">
@@ -109,7 +131,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+      <main className="mx-auto w-[64%] px-4 py-6 sm:px-6 lg:px-8">{children}</main>
     </div>
   )
 }

@@ -76,19 +76,54 @@ export interface Brand {
   product_count?: number
 }
 
+export interface BrandList {
+  items: Brand[]
+  page: number
+  pages: number
+  total: number
+}
+
 export interface Product {
   id: number
   brand_id: number
   brand: string
   name: string
   price: number
-  quantity: number
+  quantity: number | null
   reorder_point: number
   lead_time_days: number
+  min_quantity: number
 }
 
 export interface ProductList {
   items: Product[]
+  page: number
+  pages: number
+  total: number
+}
+
+// ------------------------------------------------------------------ inventory health
+
+export type StockStatus = "OUT OF STOCK" | "LOW STOCK" | "IN STOCK"
+
+export interface InventoryHealthRow {
+  product_id: number
+  name: string
+  brand: string
+  current_quantity: number
+  min_quantity: number
+  stock_status: StockStatus
+  recommended_to_order: number
+}
+
+export interface InventoryHealth {
+  summary: {
+    total: number
+    "OUT OF STOCK": number
+    "LOW STOCK": number
+    "IN STOCK": number
+  }
+  items: InventoryHealthRow[]
   page: number
   pages: number
   total: number
@@ -234,6 +269,7 @@ export interface OrderRow {
   created_at: string
   expected_at: string
   received_at: string | null
+  lead_time_days: number
 }
 
 export interface OrderPage {

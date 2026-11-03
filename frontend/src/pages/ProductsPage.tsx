@@ -12,6 +12,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+import { MIN_QUANTITY_DEFAULT, StockStatusBadge, statusOf } from "@/lib/inventoryHealth"
 import { api, type Brand, type ImportResult, type Product, type ProductList } from "@/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -62,6 +63,7 @@ interface FormState {
   quantity: string
   reorder_point: string
   lead_time_days: string
+  min_quantity: string
   reason: string
 }
 
@@ -73,6 +75,7 @@ const EMPTY_FORM: FormState = {
   quantity: "",
   reorder_point: "10",
   lead_time_days: "7",
+  min_quantity: "5",
   reason: "manual_edit",
 }
 
@@ -121,7 +124,7 @@ export function ProductsPage() {
   }, [load])
 
   useEffect(() => {
-    api<Brand[]>("/api/brands")
+    api<Brand[]>("/api/brands/all")
       .then(setBrands)
       .catch(() => undefined)
   }, [])
@@ -137,9 +140,10 @@ export function ProductsPage() {
       brand_id: String(product.brand_id),
       name: product.name,
       price: String(product.price),
-      quantity: String(product.quantity),
+      quantity: String(product.quantity ?? 0),
       reorder_point: String(product.reorder_point),
       lead_time_days: String(product.lead_time_days),
+      min_quantity: String(product.min_quantity ?? MIN_QUANTITY_DEFAULT),
       reason: "manual_edit",
     })
     setFormOpen(true)
@@ -208,6 +212,14 @@ export function ProductsPage() {
       return
     }
 
+    // Minimum quantity must be a whole, non-negative number: the API
+    // rejects negatives with a 422, so catch it before the round-trip.
+    const minQuantity = Number(form.min_quantity)
+    if (!Number.isInteger(minQuantity) || minQuantity < 0) {
+      toast.error("Minimum quantity must be a whole number of 0 or more.")
+      return
+    }
+
     setSaving(true)
 
     const body: Record<string, unknown> = {
@@ -217,6 +229,7 @@ export function ProductsPage() {
       quantity: Number(form.quantity),
       reorder_point: Number(form.reorder_point),
       lead_time_days: Number(form.lead_time_days),
+      min_quantity: minQuantity,
     }
 
     try {
@@ -371,7 +384,9 @@ export function ProductsPage() {
                   <SortHead column="price" label="Price" className="text-right" />
                   <SortHead column="quantity" label="Quantity" className="text-right" />
                   <SortHead column="reorder_point" label="Reorder point" className="text-right" />
+                  <SortHead column="min_quantity" label="Min quantity" className="text-right" />
                   <SortHead column="lead_time_days" label="Lead time" className="text-right" />
+                  <TableHead>Status</TableHead>
                   <TableHead className="w-24" />
                 </TableRow>
               </TableHeader>
@@ -391,17 +406,23 @@ export function ProductsPage() {
                       <span
                         className={cn(
                           "tabular-nums",
-                          product.quantity === 0 && "font-medium text-destructive"
+                          (product.quantity ?? 0) === 0 && "font-medium text-destructive"
                         )}
                       >
-                        {product.quantity}
+                        {product.quantity ?? 0}
                       </span>
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {product.reorder_point ?? 10}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
+                      {product.min_quantity}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
                       {product.lead_time_days ?? 7}
+                    </TableCell>
+                    <TableCell>
+                      <StockStatusBadge status={statusOf(product)} />
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
@@ -562,6 +583,29 @@ export function ProductsPage() {
                   required
                 />
               </div>
+              <div className="grid gap-2">
+                <Label htmlFor="min_quantity">Minimum quantity</Label>
+                <Input
+                  id="min_quantity"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={form.min_quantity}
+                  onChange={(e) =>
+                    setForm((current) => ({
+                      ...current,
+                      min_quantity: e.target.value,
+                    }))
+                  }
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  Stock at or above this is "in stock". Used for the inventory-health report.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="lead_time_days">Lead time (days)</Label>
                 <Input
