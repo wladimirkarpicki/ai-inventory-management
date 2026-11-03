@@ -125,6 +125,16 @@ function formatDayTick(iso: string): string {
     : date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
 }
 
+function formatDate(date: Date): string {
+  return Number.isNaN(date.getTime())
+    ? ""
+    : date.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      })
+}
+
 function Pager({
   offset,
   total,
@@ -195,6 +205,7 @@ export function DashboardPage() {
   const [orderResults, setOrderResults] = useState<Product[]>([])
   const [orderProductId, setOrderProductId] = useState<number | null>(null)
   const [orderProductName, setOrderProductName] = useState("")
+  const [orderLeadDays, setOrderLeadDays] = useState<number | null>(null)
   const [orderQty, setOrderQty] = useState("10")
 
   useEffect(() => {
@@ -375,6 +386,7 @@ export function DashboardPage() {
     setOrderResults([])
     setOrderProductId(null)
     setOrderProductName("")
+    setOrderLeadDays(null)
     setOrderQty("10")
   }
 
@@ -1028,9 +1040,6 @@ export function DashboardPage() {
 
       {activeTab === "lowstock" && lowStockPage !== null && (
         <div className="mt-6 p-3 bg-muted/50 rounded border">
-          <p className="text-xs text-muted-foreground mb-2">
-            Below threshold ({stats.low_stock_threshold}) — the most depleted first
-          </p>
           {lowStockPage.items.length > 0 ? (
             <>
               <Table>
@@ -1145,10 +1154,19 @@ export function DashboardPage() {
                         <TableCell className="text-right timestamp">
                           {formatTimestamp(o.created_at)}
                         </TableCell>
-                        <TableCell className="text-right timestamp">
+                        <TableCell
+                          className="text-right timestamp"
+                          title={`Expected = created + ${o.lead_time_days} day(s) of supplier lead time`}
+                        >
                           {o.status === "received" && o.received_at
                             ? formatTimestamp(o.received_at)
                             : formatTimestamp(o.expected_at)}
+                          {o.status !== "received" && (
+                            <span className="text-muted-foreground">
+                              {" "}
+                              (+{o.lead_time_days} d)
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           {o.status === "ordered" && (
@@ -1213,7 +1231,8 @@ export function DashboardPage() {
             <DialogTitle>New purchase order</DialogTitle>
             <DialogDescription>
               Pick a product and the quantity to order from the supplier.
-              The expected arrival is derived from the product's lead time.
+              Expected arrival = creation date + the product&apos;s supplier
+              lead time (in days), computed when the order is created.
             </DialogDescription>
           </DialogHeader>
           <form
@@ -1249,6 +1268,7 @@ export function DashboardPage() {
                       onClick={() => {
                         setOrderProductId(p.id)
                         setOrderProductName(p.name)
+                        setOrderLeadDays(p.lead_time_days)
                         setOrderResults([])
                         setOrderSearch(p.name)
                       }}
@@ -1265,7 +1285,18 @@ export function DashboardPage() {
               )}
               {orderProductId !== null && (
                 <p className="text-xs text-muted-foreground">
-                  Selected: <strong className="text-foreground">{orderProductName}</strong>
+                  Selected:{" "}
+                  <strong className="text-foreground">{orderProductName}</strong>
+                  {orderLeadDays !== null && (
+                    <>
+                      {" "}· lead time {orderLeadDays} d → expected{" "}
+                      <strong className="text-foreground">
+                        {formatDate(
+                          new Date(Date.now() + orderLeadDays * 86_400_000)
+                        )}
+                      </strong>
+                    </>
+                  )}
                 </p>
               )}
             </div>
