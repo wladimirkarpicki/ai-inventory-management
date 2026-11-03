@@ -46,7 +46,7 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-svh bg-background">
       <header className="sticky top-0 z-10 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
-        <div className="mx-auto flex h-14 w-[64%] items-center gap-2 px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-4">
           <Link
             to="/"
             className="flex shrink-0 items-center gap-2 rounded-md px-1.5 py-1 text-sm font-semibold tracking-tight"
@@ -131,7 +131,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <main className="mx-auto w-[64%] px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
     </div>
   )
 }

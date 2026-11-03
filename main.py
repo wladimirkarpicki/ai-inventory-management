@@ -1520,7 +1520,7 @@ def create_order(
     """
     Register a purchase order. The expected arrival is NOT guessed: it is
     `created_at + product.lead_time_days`, i.e. the moment of creation plus
-    the product's supplier lead time in whole days. The lead time used is
+    the product's lead time in whole days. The lead time used is
     returned with the order so the UI can show the rule.
     """
 

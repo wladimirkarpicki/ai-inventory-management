@@ -5,7 +5,7 @@
 -- quantity to the product and records a matching 'purchase_order'
 -- stock movement in the same transaction, so Recent movements,
 -- Dynamics and the forecast update together. The expected arrival date
--- is derived from the product's supplier lead time at creation.
+-- is derived from the product's lead time at creation.
 --
 -- Idempotent: re-running is a no-op.
 

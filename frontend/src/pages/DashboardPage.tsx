@@ -1156,7 +1156,7 @@ export function DashboardPage() {
                         </TableCell>
                         <TableCell
                           className="text-right timestamp"
-                          title={`Expected = created + ${o.lead_time_days} day(s) of supplier lead time`}
+                          title={`Expected = created + ${o.lead_time_days} day(s) of lead time`}
                         >
                           {o.status === "received" && o.received_at
                             ? formatTimestamp(o.received_at)
@@ -1230,9 +1230,9 @@ export function DashboardPage() {
           <DialogHeader>
             <DialogTitle>New purchase order</DialogTitle>
             <DialogDescription>
-              Pick a product and the quantity to order from the supplier.
-              Expected arrival = creation date + the product&apos;s supplier
-              lead time (in days), computed when the order is created.
+              Pick a product and the quantity to order.
+              Expected arrival = creation date + the product&apos;s lead
+              time (in days), computed when the order is created.
             </DialogDescription>
           </DialogHeader>
           <form
