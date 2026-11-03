@@ -288,6 +288,40 @@ def test_brand_crud_blocks_deleting_a_brand_with_products(api, admin_api):
     assert response.status_code == 400
 
 
+def test_brands_list_is_paginated_like_products(api, admin_api):
+    total = main_module.PAGE_SIZE + 5
+    for index in range(total):
+        admin_api.post("/api/brands", json={"name": f"Brand {index:02d}"})
+
+    page1 = admin_api.get("/api/brands", params={"page": 1}).json()
+    assert page1["page"] == 1
+    assert page1["total"] == total
+    assert page1["pages"] == 2
+    assert len(page1["items"]) == main_module.PAGE_SIZE
+    names = [brand["name"] for brand in page1["items"]]
+    assert names == sorted(names)  # still ordered by name
+
+    page2 = admin_api.get("/api/brands", params={"page": 2}).json()
+    assert page2["page"] == 2
+    assert len(page2["items"]) == total - main_module.PAGE_SIZE
+
+    assert admin_api.get("/api/brands", params={"page": 0}).status_code == 422
+
+
+def test_brands_all_returns_every_brand_unpaginated(api, admin_api):
+    total = main_module.PAGE_SIZE + 5
+    for index in range(total):
+        admin_api.post("/api/brands", json={"name": f"AllBrand {index:02d}"})
+
+    response = admin_api.get("/api/brands/all")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert isinstance(body, list)
+    assert len(body) == total
+    assert all("product_count" in brand for brand in body)
+
+
 # ------------------------------------------------------------------ products
 
 
@@ -622,6 +656,13 @@ def test_create_order_derives_expected_from_lead_time(api, admin_api):
     created = datetime.fromisoformat(body["created_at"])
     expected = datetime.fromisoformat(body["expected_at"])
     assert 11 <= (expected - created).days <= 13  # lead_time_days = 12
+
+    # The rule must be visible to clients: the lead time used is returned
+    # with the order (create) and in the list, so the UI can show
+    # "expected = created + lead_time_days".
+    assert body["lead_time_days"] == 12
+    listed = admin_api.get("/api/orders").json()["items"]
+    assert listed[0]["lead_time_days"] == 12
 
 
 def test_create_order_unknown_product_and_bad_qty(api, admin_api):
