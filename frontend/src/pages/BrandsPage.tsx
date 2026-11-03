@@ -2,7 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react"
 import { PencilIcon, PlusIcon, Trash2Icon } from "lucide-react"
 import { toast } from "sonner"
 
-import { api, type Brand } from "@/api"
+import { api, type Brand, type BrandList } from "@/api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import {
@@ -43,7 +43,8 @@ interface FormState {
 const EMPTY_FORM: FormState = { id: null, name: "" }
 
 export function BrandsPage() {
-  const [brands, setBrands] = useState<Brand[] | null>(null)
+  const [list, setList] = useState<BrandList | null>(null)
+  const [page, setPage] = useState(1)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [formOpen, setFormOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -52,11 +53,11 @@ export function BrandsPage() {
 
   const load = useCallback(async () => {
     try {
-      setBrands(await api<Brand[]>("/api/brands"))
+      setList(await api<BrandList>(`/api/brands?page=${page}`))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load.")
     }
-  }, [])
+  }, [page])
 
   useEffect(() => {
     void load()
@@ -109,7 +110,10 @@ export function BrandsPage() {
       await api(`/api/brands/${toDelete.id}`, { method: "DELETE" })
       toast.success(`Deleted "${toDelete.name}".`)
       setToDelete(null)
-      await load()
+      // Deleting the last row of a non-first page would render an empty
+      // page; step back one page instead (the effect reloads via `page`).
+      if (list && list.items.length === 1 && page > 1) setPage(page - 1)
+      else await load()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Delete failed.")
     } finally {
@@ -134,13 +138,13 @@ export function BrandsPage() {
 
       <Card>
         <CardContent>
-          {!brands ? (
+          {!list ? (
             <div className="space-y-2">
               {Array.from({ length: 4 }).map((_, index) => (
                 <Skeleton key={index} className="h-10 w-full" />
               ))}
             </div>
-          ) : brands.length === 0 ? (
+          ) : list.total === 0 ? (
             <div className="flex flex-col items-center gap-1 py-10 text-center">
               <p className="text-sm font-medium">No brands yet</p>
               <p className="text-sm text-muted-foreground">
@@ -157,7 +161,7 @@ export function BrandsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {brands.map((brand) => (
+                {list.items.map((brand) => (
                   <TableRow key={brand.id}>
                     <TableCell className="font-medium">{brand.name}</TableCell>
                     <TableCell className="text-right tabular-nums">
@@ -190,6 +194,32 @@ export function BrandsPage() {
             </Table>
           )}
         </CardContent>
+        {list && list.total > 0 && (
+          <div className="flex items-center justify-between border-t px-6 py-4">
+            <span className="text-sm text-muted-foreground tabular-nums">
+              Page {list.page} of {list.pages} &middot;{" "}
+              {list.total.toLocaleString("en-US")} brands
+            </span>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={list.page <= 1}
+                onClick={() => setPage(list.page - 1)}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={list.page >= list.pages}
+                onClick={() => setPage(list.page + 1)}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
 
       <Dialog

@@ -80,6 +80,14 @@
   }
 }
 
+html {
+  /* UI scale: every rem-based Tailwind utility (type, spacing, control and
+     icon sizes) grows proportionally; percentage widths are unaffected, so
+     the layout still fits the viewport with no horizontal scroll.
+     150% minus 20% = 120%. */
+  font-size: 120%;
+}
+
 html,
 body,
 #root {

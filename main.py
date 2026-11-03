@@ -55,6 +55,17 @@ LOGIN_MAX_ATTEMPTS = 5
 LOGIN_LOCKOUT_SECONDS = 15 * 60
 FORECAST_CACHE_TTL_SECONDS = 10 * 60
 
+# Inventory health: the per-product minimum stock level and the three
+# stock-status classes derived from comparing quantity against it.
+MIN_QUANTITY_DEFAULT = 5
+STOCK_OUT_OF_STOCK = "OUT OF STOCK"
+STOCK_LOW_STOCK = "LOW STOCK"
+STOCK_IN_STOCK = "IN STOCK"
+STOCK_STATUSES = (STOCK_OUT_OF_STOCK, STOCK_LOW_STOCK, STOCK_IN_STOCK)
+
+# Report ordering: the most severe status first.
+_STATUS_ORDER = {status: index for index, status in enumerate(STOCK_STATUSES)}
+
 SORT_COLUMNS = {
     "id": "p.id",
     "brand": "b.name",
@@ -63,6 +74,7 @@ SORT_COLUMNS = {
     "quantity": "p.quantity",
     "reorder_point": "p.reorder_point",
     "lead_time_days": "p.lead_time_days",
+    "min_quantity": "p.min_quantity",
 }
 
 _failed_logins: dict = {}
@@ -151,7 +163,14 @@ class ProductIn(BaseModel):
     quantity: int = Field(ge=0)
     reorder_point: int = Field(default=10, ge=0)
     lead_time_days: int = Field(default=7, ge=1)
+    min_quantity: int = Field(default=MIN_QUANTITY_DEFAULT, ge=0)
     reason: str | None = Field(default=None, max_length=200)
+
+
+class ProductMinQuantityIn(BaseModel):
+    """Single-field PATCH body for the per-product minimum stock level."""
+
+    min_quantity: int = Field(ge=0)
 
 
 class OrderIn(BaseModel):
@@ -485,7 +504,38 @@ def reset_user_password(
 def list_brands(
     user: dict = Depends(get_current_user),
     db: psycopg.Connection = Depends(get_db),
+    page: int = Query(default=1, ge=1),
+) -> dict:
+    """
+    Paginated brand list, same contract as /api/products: a page of
+    PAGE_SIZE items plus page/pages/total, ordered by name. Pickers that
+    need every brand (e.g. the product form) use /api/brands/all instead.
+    """
+
+    total = db.execute("SELECT COUNT(*) FROM brands").fetchone()[0]  # type: ignore[index]  # single-row query by construction
+    offset = (page - 1) * PAGE_SIZE
+    rows = db.execute(
+        "SELECT b.id, b.name, COUNT(p.id) AS product_count "
+        "FROM brands b LEFT JOIN products p ON p.brand_id = b.id "
+        "GROUP BY b.id, b.name ORDER BY b.name LIMIT %s OFFSET %s",
+        (PAGE_SIZE, offset),
+    ).fetchall()
+
+    return {
+        "items": [{"id": r[0], "name": r[1], "product_count": r[2]} for r in rows],
+        "page": page,
+        "pages": max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE),
+        "total": total,
+    }
+
+
+@app.get("/api/brands/all")
+def list_all_brands(
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
 ) -> list:
+    """Every brand, unpaginated, for pickers such as the product form."""
+
     rows = db.execute(
         "SELECT b.id, b.name, COUNT(p.id) AS product_count "
         "FROM brands b LEFT JOIN products p ON p.brand_id = b.id "
@@ -564,6 +614,73 @@ def _escape_like(term: str) -> str:
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+# ---------------------------------------------------------------- inventory health
+
+
+def stock_status(quantity: int | None, min_quantity: int) -> str:
+    """
+    Classify a product's stock against its own minimum level:
+
+        quantity = 0                     -> OUT OF STOCK
+        0 < quantity < min_quantity      -> LOW STOCK
+        quantity >= min_quantity         -> IN STOCK
+
+    A NULL quantity means nothing is known to be on hand, so it is treated
+    as 0, the same convention the forecast and recommendations code uses
+    (`qty or 0`).
+    """
+
+    on_hand = quantity if quantity is not None else 0
+
+    if on_hand <= 0:
+        return STOCK_OUT_OF_STOCK
+    if on_hand < min_quantity:
+        return STOCK_LOW_STOCK
+    return STOCK_IN_STOCK
+
+
+def recommended_to_order(quantity: int | None, min_quantity: int) -> int:
+    """
+    Units needed to reach the minimum level: max(0, min_quantity - quantity).
+    Never negative, and 0 for anything already at or above the minimum.
+    """
+
+    on_hand = quantity if quantity is not None else 0
+
+    return max(0, min_quantity - on_hand)
+
+
+def _health_row(
+    product_id: int, name: str, brand: str, quantity: int | None, min_quantity: int
+) -> dict:
+    """One inventory-health report row, shared by the JSON and CSV paths."""
+
+    current = quantity if quantity is not None else 0
+
+    return {
+        "product_id": product_id,
+        "name": name,
+        "brand": brand,
+        "current_quantity": current,
+        "min_quantity": min_quantity,
+        "stock_status": stock_status(current, min_quantity),
+        "recommended_to_order": recommended_to_order(current, min_quantity),
+    }
+
+
+def _health_sort_key(row: dict) -> tuple:
+    """
+    Most urgent first: OUT OF STOCK before LOW STOCK before IN STOCK, and
+    within a status the largest unit shortage first (a product 9 units
+    under its minimum ranks above one 1 unit under). Product id breaks
+    ties so the order is stable across calls.
+    """
+
+    shortage = row["min_quantity"] - row["current_quantity"]
+
+    return (_STATUS_ORDER[row["stock_status"]], -shortage, row["product_id"])
+
+
 @app.get("/api/products")
 def list_products(
     user: dict = Depends(get_current_user),
@@ -594,7 +711,8 @@ def list_products(
     total = db.execute(f"SELECT COUNT(*) {base}", (search, like, like)).fetchone()[0]  # type: ignore[index]  # single-row query by construction
 
     rows = db.execute(
-        f"SELECT p.id, p.brand_id, b.name, p.name, p.price, p.quantity, p.reorder_point, p.lead_time_days "
+        f"SELECT p.id, p.brand_id, b.name, p.name, p.price, p.quantity, p.reorder_point, "
+        f"p.lead_time_days, p.min_quantity "
         f"{base} ORDER BY {order_by} LIMIT %s OFFSET %s",
         (search, like, like, PAGE_SIZE, offset),
     ).fetchall()
@@ -610,6 +728,7 @@ def list_products(
                 "quantity": r[5],
                 "reorder_point": r[6],
                 "lead_time_days": r[7],
+                "min_quantity": r[8],
             }
             for r in rows
         ],
@@ -665,8 +784,9 @@ def create_product(
         )
 
     row = db.execute(
-        "INSERT INTO products (brand_id, name, price, quantity, reorder_point, lead_time_days) "
-        "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+        "INSERT INTO products (brand_id, name, price, quantity, reorder_point, "
+        "lead_time_days, min_quantity) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
         (
             data.brand_id,
             data.name,
@@ -674,6 +794,7 @@ def create_product(
             data.quantity,
             data.reorder_point,
             data.lead_time_days,
+            data.min_quantity,
         ),
     ).fetchone()
     product_id = row[0]  # type: ignore[index]  # single-row query by construction
@@ -695,6 +816,7 @@ def create_product(
         "quantity": data.quantity,
         "reorder_point": data.reorder_point,
         "lead_time_days": data.lead_time_days,
+        "min_quantity": data.min_quantity,
     }
 
 
@@ -731,7 +853,8 @@ def update_product(
         )
 
     db.execute(
-        "UPDATE products SET brand_id = %s, name = %s, price = %s, quantity = %s, reorder_point = %s, lead_time_days = %s WHERE id = %s",
+        "UPDATE products SET brand_id = %s, name = %s, price = %s, quantity = %s, "
+        "reorder_point = %s, lead_time_days = %s, min_quantity = %s WHERE id = %s",
         (
             data.brand_id,
             data.name,
@@ -739,6 +862,7 @@ def update_product(
             data.quantity,
             data.reorder_point,
             data.lead_time_days,
+            data.min_quantity,
             product_id,
         ),
     )
@@ -761,6 +885,43 @@ def update_product(
         "quantity": data.quantity,
         "reorder_point": data.reorder_point,
         "lead_time_days": data.lead_time_days,
+        "min_quantity": data.min_quantity,
+    }
+
+
+@app.patch("/api/products/{product_id}/min-quantity")
+def update_product_min_quantity(
+    product_id: int,
+    data: ProductMinQuantityIn,
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+) -> dict:
+    """
+    Update only the minimum stock level of one product. Kept separate from
+    the full PATCH so the threshold can be adjusted without resending (or
+    silently resetting) the rest of the record. 404 when the product is
+    gone; the ge=0 constraint on the schema rejects negatives as a 422
+    before the database ever sees them.
+    """
+
+    row = db.execute(
+        "SELECT quantity, min_quantity FROM products WHERE id = %s", (product_id,)
+    ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Product not found.")
+
+    db.execute(
+        "UPDATE products SET min_quantity = %s WHERE id = %s",
+        (data.min_quantity, product_id),
+    )
+    db.commit()
+    _invalidate_forecast_cache()
+
+    return {
+        "id": product_id,
+        "min_quantity": data.min_quantity,
+        "stock_status": stock_status(row[0], data.min_quantity),
     }
 
 
@@ -1025,6 +1186,130 @@ def export_movements_csv(
     )
 
 
+# ---------------------------------------------------------------- inventory health report
+
+HEALTH_CSV_COLUMNS = (
+    "Product ID",
+    "Name",
+    "Brand",
+    "Current Quantity",
+    "Minimum Quantity",
+    "Stock Status",
+    "Recommended Replenishment Quantity",
+)
+
+
+def _health_rows(db: psycopg.Connection, status_filter: str = "") -> list[dict]:
+    """
+    Build the whole inventory-health report, most urgent first. One query
+    over every product (the report is a snapshot, not a page), with the
+    severity ordering applied in Python so it stays readable.
+    """
+
+    rows = db.execute(
+        "SELECT p.id, p.name, b.name, p.quantity, p.min_quantity "
+        "FROM products p JOIN brands b ON p.brand_id = b.id "
+        "ORDER BY p.id"
+    ).fetchall()
+
+    report = [_health_row(r[0], r[1], r[2], r[3], r[4]) for r in rows]
+
+    if status_filter:
+        report = [row for row in report if row["stock_status"] == status_filter]
+
+    report.sort(key=_health_sort_key)
+
+    return report
+
+
+@app.get("/api/inventory-health")
+def inventory_health(
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+    status: str = "",
+    page: int = Query(default=1, ge=1),
+) -> dict:
+    """
+    Inventory-health report, paginated like every other list endpoint
+    (page of PAGE_SIZE rows). Each row carries the product's current
+    quantity, minimum quantity, stock status and recommended replenishment
+    quantity (max(0, min_quantity - quantity)).
+
+    The full report is sorted by severity of shortage: OUT OF STOCK first,
+    then LOW STOCK ordered by how far below the minimum the product sits,
+    IN STOCK last; `page` then slices that globally ordered report, so a
+    page never mixes severities out of order. `status` optionally narrows
+    the report to one class of the three. The summary counts and `total`
+    always describe the whole (filtered) report, not just the current
+    page, so the tiles and the pager stay consistent across pages. The CSV
+    export is the one unpaginated view of the same report.
+    """
+
+    if status and status not in STOCK_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status filter. Use one of: {', '.join(STOCK_STATUSES)}.",
+        )
+
+    report = _health_rows(db, status)
+
+    summary = {"total": len(report)}
+    for class_status in STOCK_STATUSES:
+        summary[class_status] = 0
+
+    for row in report:
+        summary[row["stock_status"]] += 1
+
+    offset = (page - 1) * PAGE_SIZE
+    items = report[offset : offset + PAGE_SIZE]
+
+    return {
+        "summary": summary,
+        "items": items,
+        "page": page,
+        "pages": max(1, (len(report) + PAGE_SIZE - 1) // PAGE_SIZE),
+        "total": len(report),
+    }
+
+
+@app.get("/api/export/inventory-health.csv")
+def export_inventory_health_csv(
+    user: dict = Depends(get_current_user),
+    db: psycopg.Connection = Depends(get_db),
+) -> StreamingResponse:
+    """
+    The inventory-health report as CSV, same rows and ordering as the
+    JSON endpoint.
+    """
+
+    report = _health_rows(db)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(HEALTH_CSV_COLUMNS)
+
+    for row in report:
+        writer.writerow(
+            [
+                row["product_id"],
+                row["name"],
+                row["brand"],
+                row["current_quantity"],
+                row["min_quantity"],
+                row["stock_status"],
+                row["recommended_to_order"],
+            ]
+        )
+
+    output.seek(0)
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=inventory-health.csv"},
+    )
+
+
 # ---------------------------------------------------------------- analytics (P7 — paginated, batched; P13.2: NVIDIA Build LLM refine)
 
 ANALYTICS_WINDOW_DAYS = 30
@@ -1033,11 +1318,12 @@ DEFAULT_PAGE_SIZE = 10
 MAX_PAGE_SIZE = 100
 
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
-# gpt-oss-20b: ~25s for 10 items, 50s+ observed for a 15-item page on the
-# free tier — the 90s budget keeps the badge from silently disappearing.
-# The refine runs once per forecast-cache window (10 min), so the cost is
-# one slow request per window; every other forecast call is a cache hit.
-LLM_TIMEOUT = 90
+# Free-tier latency varies a lot (minimax-m3.1-flash ~44s for 10 items, but
+# spikes past 100s happen under load), so the budget is 240s to keep the AI
+# badge from silently disappearing. The refine runs once per forecast-cache
+# window (10 min), so the cost is one slow request per window; every other
+# forecast call is a cache hit.
+LLM_TIMEOUT = 240
 LLM_GRACE_SECONDS = 5  # daemon-thread join bound = LLM_TIMEOUT + grace (F1 guard)
 LLM_COOLDOWN_SECONDS = 5 * 60
 
@@ -1232,8 +1518,10 @@ def create_order(
     db: psycopg.Connection = Depends(get_db),
 ) -> dict:
     """
-    Register a purchase order. The expected arrival date is derived from
-    the product's supplier lead time at creation.
+    Register a purchase order. The expected arrival is NOT guessed: it is
+    `created_at + product.lead_time_days`, i.e. the moment of creation plus
+    the product's supplier lead time in whole days. The lead time used is
+    returned with the order so the UI can show the rule.
     """
 
     product = db.execute(
@@ -1259,6 +1547,7 @@ def create_order(
         "created_at": row[1].isoformat(),  # type: ignore[index]  # single-row query by construction
         "expected_at": row[2].isoformat(),  # type: ignore[index]  # single-row query by construction
         "received_at": None,
+        "lead_time_days": product[1],
     }
 
 
@@ -1283,7 +1572,7 @@ def list_orders(
     ).fetchone()[0]
     rows = db.execute(
         "SELECT o.id, o.product_id, p.name, o.qty, o.status, "
-        "o.created_at, o.expected_at, o.received_at "
+        "o.created_at, o.expected_at, o.received_at, p.lead_time_days "
         "FROM orders o JOIN products p ON p.id = o.product_id "
         f"{where} "
         "ORDER BY o.created_at DESC, o.id DESC LIMIT %s OFFSET %s",
@@ -1301,6 +1590,7 @@ def list_orders(
                 "created_at": r[5].isoformat(),
                 "expected_at": r[6].isoformat(),
                 "received_at": r[7].isoformat() if r[7] is not None else None,
+                "lead_time_days": r[8],
             }
             for r in rows
         ],

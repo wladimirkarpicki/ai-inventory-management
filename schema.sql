@@ -17,8 +17,14 @@ CREATE TABLE IF NOT EXISTS products (
     price NUMERIC NOT NULL,
     quantity INTEGER,
     reorder_point INTEGER NOT NULL DEFAULT 10,
-    lead_time_days INTEGER NOT NULL DEFAULT 7
+    lead_time_days INTEGER NOT NULL DEFAULT 7,
+    min_quantity INTEGER NOT NULL DEFAULT 5 CHECK (min_quantity >= 0)
 );
+
+-- Per-product minimum stock level (default 5). The inventory-health
+-- classifier compares quantity against it: OUT OF STOCK (0), LOW STOCK
+-- (0 < quantity < min_quantity), IN STOCK (quantity >= min_quantity).
+COMMENT ON COLUMN products.min_quantity IS 'Per-product minimum stock level (default 5, never negative)';
 
 -- One product per (brand, case-insensitive name) — the same rule the
 -- CSV import deduplicates by, enforced by the database (P18).

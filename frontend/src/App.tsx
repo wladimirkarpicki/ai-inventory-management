@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { ThemeProvider } from "@/theme"
 import { BrandsPage } from "@/pages/BrandsPage"
 import { DashboardPage } from "@/pages/DashboardPage"
+import { InventoryHealthPage } from "@/pages/InventoryHealthPage"
 import { LoginPage } from "@/pages/LoginPage"
 import { PasswordPage } from "@/pages/PasswordPage"
 import { ProductsPage } from "@/pages/ProductsPage"
@@ -62,6 +63,14 @@ export default function App() {
             element={
               <RequireAuth>
                 <ProductsPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/inventory-health"
+            element={
+              <RequireAuth>
+                <InventoryHealthPage />
               </RequireAuth>
             }
           />
