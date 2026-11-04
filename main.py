@@ -15,7 +15,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -23,9 +23,9 @@ from pathlib import Path
 import jwt
 import psycopg
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -100,6 +100,39 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def security_headers(
+    request: Request, call_next: Callable[..., Awaitable[Response]]
+) -> Response:
+    """
+    Attach hardening headers to every response.
+
+    The policy is deliberately narrow: this app serves a JSON API plus its
+    own built SPA, so `default-src 'self'` is enough and inline styles stay
+    allowed because the bundle uses a <style> block for the pre-paint theme.
+    `frame-ancestors 'none'` is the modern replacement for the legacy
+    X-Frame-Options that the SPA route also relies on.
+    """
+
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "font-src 'self'; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    )
+    return response
+
 
 # Prometheus metrics: GET /metrics (request counts, latency, in-progress).
 Instrumentator().instrument(app).expose(app)

@@ -3,12 +3,34 @@
 import json
 import os
 import sys
+import urllib.parse
 import urllib.request
 
 BASE = "http://127.0.0.1:8000"
 
+# Local smoke check: 5s is long enough for a cold dev server to answer and
+# short enough that a hung server fails fast instead of hanging the check.
+TIMEOUT = 5
+# The dev origin is plain HTTP, so file:, ftp: and custom schemes are never a
+# legitimate target: reject them instead of letting urlopen fetch them.
+ALLOWED_SCHEMES = ("http",)
+# Explicit opener: the same default handler chain urllib.request.urlopen()
+# builds internally, so every request goes through open_url() and is checked.
+OPENER = urllib.request.build_opener()
+
 username = os.environ.get("SEED_USER", "nbk0000000013")
 password = os.environ.get("SEED_PASS", "admin-temp-123")
+
+
+def open_url(req: urllib.request.Request):
+    """Open one request, refusing any URL outside the permitted schemes."""
+    scheme = urllib.parse.urlsplit(req.full_url).scheme
+    if scheme not in ALLOWED_SCHEMES:
+        raise ValueError(
+            f"refusing to open {req.full_url!r}: "
+            f"scheme must be {' or '.join(ALLOWED_SCHEMES)}, got {scheme!r}"
+        )
+    return OPENER.open(req, timeout=TIMEOUT)
 
 
 def post_json(url: str, payload: dict):
@@ -19,7 +41,7 @@ def post_json(url: str, payload: dict):
         method="POST",
     )
     try:
-        resp = urllib.request.urlopen(req, timeout=5)
+        resp = open_url(req)
         return resp.status, json.loads(resp.read().decode())
     except urllib.error.HTTPError as err:
         return err.code, json.loads(err.read().decode())
@@ -28,7 +50,7 @@ def post_json(url: str, payload: dict):
 def get_json(url: str, token: str):
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
     try:
-        resp = urllib.request.urlopen(req, timeout=5)
+        resp = open_url(req)
         return resp.status, json.loads(resp.read().decode())
     except urllib.error.HTTPError as err:
         return err.code, json.loads(err.read().decode())

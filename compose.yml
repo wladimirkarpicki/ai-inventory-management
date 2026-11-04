@@ -1,3 +1,11 @@
+# Project name is pinned so the compose project, the volume names and the
+# directory name cannot drift apart. Without it Compose derives the name
+# from the directory (ai-inventory-management) while containers created
+# from a differently named directory keep their own project, so a plain
+# `docker compose up` silently targets a different project and starts
+# against a fresh, empty database volume.
+name: ai-inventory-management
+
 services:
   db:
     image: postgres:16
