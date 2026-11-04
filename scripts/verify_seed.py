@@ -12,8 +12,10 @@ with psycopg.connect(get_connection_string()) as c:
     ).fetchall()
     for brand_id, count in rows:
         print(f"brand_id={brand_id} count={count}")
-    total = c.execute("SELECT COUNT(*) FROM products").fetchone()[0]
-    print(f"total products: {total}")
+    total = c.execute("SELECT COUNT(*) FROM products").fetchone()
+    if total is None:
+        raise SystemExit("SELECT COUNT(*) FROM products returned no row")
+    print(f"total products: {total[0]}")
     brands = c.execute("SELECT id, name FROM brands ORDER BY id").fetchall()
     print(f"brand count: {len(brands)}")
     print("first brands:", [b[1] for b in brands[:8]])

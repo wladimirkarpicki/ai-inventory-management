@@ -1,6 +1,9 @@
 """FMCG consumer goods — 10 real brands, ~50 products each, USD."""
 
-BRANDS_PART2 = {
+# brand name -> [(product name, price USD), ...]
+Products = dict[str, list[tuple[str, float]]]
+
+BRANDS_PART2: Products = {
     "Nestle": [
         ("Nescafe Classic Coffee 95g", 4.50),
         ("Nescafe Classic Coffee 200g", 8.50),

@@ -11,6 +11,7 @@ Usage (from the repo root):
 import random
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -23,11 +24,35 @@ from scripts.seed_data_part2 import BRANDS_PART2
 MIN_PRODUCTS = 50
 
 
+def _one(conn: psycopg.Connection, sql: str, params: tuple[object, ...] = ()) -> tuple[object, ...]:
+    """
+    Run a query that must return exactly one row.
+
+    `fetchone()` is typed as `tuple | None`; COUNT(*) and INSERT ... RETURNING
+    always produce a row, so None here means the database answered with
+    nothing and the seed should stop loudly instead of failing later.
+    """
+
+    row = conn.execute(sql, params).fetchone()
+    if row is None:
+        raise SystemExit(f"expected one row from {sql!r}, got none")
+    return row
+
+
+def _count(conn: psycopg.Connection, sql: str) -> int:
+    """Run a COUNT(*) query and return it as a typed int."""
+
+    value = _one(conn, sql)[0]
+    if not isinstance(value, int):
+        raise SystemExit(f"expected an integer from {sql!r}, got {value!r}")
+    return value
+
+
 def main() -> None:
     force = "--force" in sys.argv
     rng = random.Random(20261018)
 
-    all_brands = {**BRANDS_PART1, **BRANDS_PART2}
+    all_brands: dict[str, Any] = {**BRANDS_PART1, **BRANDS_PART2}
     for name, items in all_brands.items():
         if len(items) < MIN_PRODUCTS:
             raise SystemExit(
@@ -35,7 +60,7 @@ def main() -> None:
             )
 
     with psycopg.connect(get_connection_string()) as conn:
-        total = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+        total = _count(conn, "SELECT COUNT(*) FROM products")
         if total >= 1000 and not force:
             print(f"products table already has {total} rows; pass --force to seed anyway")
             return
@@ -46,9 +71,11 @@ def main() -> None:
                 "SELECT id FROM brands WHERE LOWER(name) = LOWER(%s)", (brand_name,)
             ).fetchone()
             if row is None:
-                row = conn.execute(
-                    "INSERT INTO brands (name) VALUES (%s) RETURNING id", (brand_name,)
-                ).fetchone()
+                row = _one(
+                    conn,
+                    "INSERT INTO brands (name) VALUES (%s) RETURNING id",
+                    (brand_name,),
+                )
                 print(f"+ brand {brand_name} (id={row[0]})")
             else:
                 print(f"= brand {brand_name} exists (id={row[0]})")
@@ -72,8 +99,8 @@ def main() -> None:
             print(f"  -> {len(items)} products for {brand_name}")
         conn.commit()
 
-        brands_after = conn.execute("SELECT COUNT(*) FROM brands").fetchone()[0]
-        products_after = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+        brands_after = _count(conn, "SELECT COUNT(*) FROM brands")
+        products_after = _count(conn, "SELECT COUNT(*) FROM products")
         print(
             f"Inserted {inserted} products. Totals: {brands_after} brands, {products_after} products."
         )

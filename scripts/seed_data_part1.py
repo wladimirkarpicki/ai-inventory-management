@@ -2,7 +2,10 @@
 Demo data for local testing: 10 consumer electronics brands with real product names and approximate USD retail prices (USD).
 """
 
-BRANDS_PART1 = {
+# brand name -> [(product name, price USD), ...]
+Products = dict[str, list[tuple[str, int]]]
+
+BRANDS_PART1: Products = {
     "Apple": [
         # iPhone
         ("iPhone 16 Pro Max 256GB", 1199),

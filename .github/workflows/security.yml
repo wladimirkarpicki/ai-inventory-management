@@ -60,9 +60,11 @@ jobs:
       # runner environment — deterministic and CI-friendly.
       # pip-audit has no SARIF format; findings land in the job summary and
       # as a JSON artifact. Dependabot tracks the GitHub Security tab natively.
+      # Runs as a real gate: requirements.txt currently audits clean, so a
+      # failure means a genuinely new vulnerability was introduced and the
+      # build should stop. CVE absorption still comes from Dependabot.
       - name: Run pip-audit
         run: pip-audit -r requirements.txt -f json -o pip-audit.json
-        continue-on-error: true
 
       - name: Upload audit report
         if: always()

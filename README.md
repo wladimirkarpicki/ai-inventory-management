@@ -163,8 +163,8 @@ Two safety rules are enforced server-side: the last remaining admin cannot be de
 
 - **Login rate limiting** — five failed sign-in attempts for the same username lock that username for 15 minutes; a successful sign-in resets the counter. The attempt state is kept in process memory, so it also resets when the server restarts.
 - **Token invalidation** — a token whose account no longer exists (for example, deleted by an admin) stops working on the very next request, because every request re-fetches the account from the database.
-- Passwords are stored as salted bcrypt hashes, all SQL statements are parameterized, search terms escape LIKE wildcards, and role checks for admin pages run server-side in the request guard.
-- **Security headers** — every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and a restrictive Content-Security-Policy (`default-src 'self'; style-src 'self' 'unsafe-inline'`).
+- Passwords are stored as salted Werkzeug password hashes (`werkzeug.security.generate_password_hash`, minimum length enforced at the API), all SQL statements are parameterized, search terms escape LIKE wildcards, and role checks for admin pages run server-side in the request guard.
+- **Security headers** — every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and a Content-Security-Policy of `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`.
 - **Secret key strength** — `SECRET_KEY` must be at least 32 characters at startup.
 - Full audit: **[SECURITY.md](SECURITY.md)**.
 
@@ -198,7 +198,7 @@ pre-commit install
 - `main.py` — FastAPI JSON backend consumed by the SPA
 - `database.py` — reads `.env` and builds the PostgreSQL connection string
 - `schema.sql` — database schema for a fresh installation
-- `migrations/` — incremental schema changes (002 reorder points, 003 dedup + unique index, 004 orders, 005 min quantity)
+- `migrations/` — incremental schema changes (001 stock movements, 002 reorder points, 003 dedup + unique index, 004 orders, 005 min quantity)
 - `frontend/` — React 19 + TypeScript SPA (Vite, Tailwind CSS v4, shadcn/ui, Recharts)
 - `tests/` — pytest test suite (FastAPI API, analytics, orders)
 - `requirements.txt` — runtime dependencies
