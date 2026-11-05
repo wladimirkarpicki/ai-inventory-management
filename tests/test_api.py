@@ -398,7 +398,8 @@ def test_products_low_stock_only_filter(api, admin_api):
     make("Equal", qty=10, reorder_point=10)
     make("NoStock", qty=0, reorder_point=10)
 
-    # Only strictly-below-reorder-point products, NULL quantities excluded.
+    # Only strictly-below-reorder-point products. An unknown (NULL) quantity
+    # counts as 0 here, matching what the inventory-health classifier does.
     response = admin_api.get("/api/products", params={"low_stock_only": "true"})
 
     assert response.status_code == 200
@@ -409,6 +410,36 @@ def test_products_low_stock_only_filter(api, admin_api):
     response = admin_api.get("/api/products", params={"sort": "reorder_point", "direction": "desc"})
     rps = [i["reorder_point"] for i in response.json()["items"]]
     assert rps == [20, 10, 10, 10]
+
+
+def test_low_stock_filter_counts_unknown_quantity_as_empty(admin_api, db_connection):
+    """
+    The products filter and the inventory-health classifier must agree.
+
+    A NULL quantity means an unknown on-hand count, which the report
+    already treats as 0 (OUT OF STOCK). This filter used to exclude such
+    rows with `quantity IS NOT NULL`, so the same product read as OUT OF
+    STOCK in one place and was invisible in the other.
+    """
+
+    brand_id = admin_api.post("/api/brands", json={"name": "UnknownQtyCo"}).json()["id"]
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO products (brand_id, name, price, quantity, reorder_point) "
+            "VALUES (%s, %s, %s, NULL, %s) RETURNING id",
+            (brand_id, "Unknown", 1.0, 10),
+        )
+        unknown_id = cur.fetchone()[0]
+    db_connection.commit()
+
+    response = admin_api.get("/api/products", params={"low_stock_only": "true"})
+    assert response.status_code == 200
+    ids = [i["id"] for i in response.json()["items"]]
+    assert unknown_id in ids
+
+    health = admin_api.get("/api/inventory-health").json()
+    row = next(i for i in health["items"] if i["product_id"] == unknown_id)
+    assert row["stock_status"] == "OUT OF STOCK"
 
 
 def test_product_create_rejects_unknown_brand(api, admin_api):

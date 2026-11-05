@@ -738,8 +738,11 @@ def list_products(
     )
     if low_stock_only:
         # Quick filter (P20): products whose stock already dipped below
-        # their own reorder point.
-        base += " AND p.quantity IS NOT NULL AND p.quantity < p.reorder_point"
+        # their own reorder point. NULL means an unknown on-hand quantity,
+        # which the inventory-health classifier already treats as 0, so
+        # COALESCE keeps the two surfaces agreeing instead of hiding such
+        # a product here while the report calls it OUT OF STOCK.
+        base += " AND COALESCE(p.quantity, 0) < p.reorder_point"
 
     total = db.execute(f"SELECT COUNT(*) {base}", (search, like, like)).fetchone()[0]  # type: ignore[index]  # single-row query by construction
 
