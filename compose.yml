@@ -12,6 +12,19 @@ services:
     networks:
       - backend
     restart: unless-stopped
+    # Deliberately NOT published to the host. An earlier iteration mapped
+    # 127.0.0.1:5433 -> 5432 so host-side tools could share this database.
+    # Under load that path was unusable: the test suite failed with
+    # psycopg ConnectionTimeout on localhost:5433, every attempt costing a
+    # full connect timeout, while the app (container-to-container, no
+    # proxy) stayed fast. Publishing a port through the Docker userland
+    # proxy is not a reliable way to share the database, so none is
+    # exposed.
+    #
+    # Host-side commands reach the same database through the network
+    # instead, which keeps exactly one database:
+    #   docker compose exec db psql -U "$DATABASE_USER" "$DATABASE_NAME"
+    #   ./scripts/run_in_net.sh python -m pytest -q
     deploy:
       resources:
         limits:

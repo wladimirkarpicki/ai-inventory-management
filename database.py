@@ -14,8 +14,9 @@ def get_connection_string():
     database = os.getenv("DATABASE_NAME")
     user = os.getenv("DATABASE_USER")
     password = os.getenv("DATABASE_PASSWORD")
+    port = os.getenv("DATABASE_PORT") or "5432"
 
     if not all([host, database, user, password]):
         raise ValueError("Database configuration is incomplete. Check your .env file.")
 
-    return f"postgresql://{user}:{password}@{host}/{database}"
+    return f"postgresql://{user}:{password}@{host}:{port}/{database}"

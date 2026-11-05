@@ -111,10 +111,17 @@ python -m scripts.seed_movements --wipe     # 30 days of realistic movement hist
 
 ## Run
 
-Backend:
+Backend and frontend both talk to the same database, which is the one in the compose stack. Start the stack first, then anything that needs the database runs through `scripts/run_in_net.sh`, which puts the command on the compose network:
 
 ```bash
-uvicorn main:app --port 8000
+docker compose up -d
+./scripts/run_in_net.sh uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+The database is deliberately not published to the host. Publishing a port through the Docker userland proxy looked like the easy way to share it, and it worked for casual queries, but under real load the connection attempts timed out (the test suite never got a connection, each attempt costing a full connect timeout). Everything that needs the database therefore goes through the network instead. Read the data or open a shell with:
+
+```bash
+docker compose exec db psql -U "$DATABASE_USER" "$DATABASE_NAME"
 ```
 
 Frontend:
@@ -174,8 +181,10 @@ The test suite runs the whole application against a throwaway PostgreSQL databas
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest
+./scripts/run_in_net.sh python -m pytest
 ```
+
+The suite runs inside the compose network so it uses the stack database. The `DATABASE_NAME` in `.env` is never touched: the suite creates its own throwaway database, applies `schema.sql` plus the migrations to it, and drops it at the end.
 
 It covers authentication and the first-run setup flow, user management with all of its safety rules, product and brand CRUD with validation and uniqueness, search (including LIKE-wildcard escaping), sorting, pagination, the low-stock filter, CSV export and import, the dashboard statistics, movement analytics (daily aggregates, top movers, forecasts with cache/LLM fallback), purchase orders (create, list, receive, cancel, transitions), and the health/readiness/metrics endpoints. Every test starts from a clean database, so tests can run in any order.
 
