@@ -20,9 +20,10 @@ TEST_DB = f"ims_pytest_{uuid.uuid4().hex[:8]}"
 DB_HOST = os.getenv("DATABASE_HOST")
 DB_USER = os.getenv("DATABASE_USER")
 DB_PASSWORD = os.getenv("DATABASE_PASSWORD")
+DB_PORT = os.getenv("DATABASE_PORT") or "5432"
 
-ADMIN_CONN_STRING = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/postgres"
-TEST_CONN_STRING = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{TEST_DB}"
+ADMIN_CONN_STRING = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/postgres"
+TEST_CONN_STRING = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{TEST_DB}"
 
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "admin-pass-123"
