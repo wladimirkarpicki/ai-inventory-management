@@ -2,7 +2,7 @@
 # CI runs the same ruff checks via .github/workflows/security.yml.
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.1
+    rev: v0.17.3
     hooks:
       - id: ruff
         name: ruff (lint + autofix)
