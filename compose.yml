@@ -60,7 +60,7 @@ services:
       NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
       NVIDIA_MODEL: ${NVIDIA_MODEL:-openai/gpt-oss-20b}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -113,7 +113,7 @@ services:
     networks:
       - backend
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       # Override in .env; weak default only for a local opt-in stack.
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
