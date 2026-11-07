@@ -1,5 +1,9 @@
 # Operations Runbook
 
+> **Prototype runbook.** This stack is a **prototype**, not a production
+> deployment. Follow it to run and inspect the demo locally. Do not treat the
+> defaults as production hardening.
+
 Day to day operation of the stack: starting it, health probes, logs, backup and
 restore, migrations, upgrades, and troubleshooting. This runbook does not repeat
 the feature list; see [README.md](../README.md) for what the application does and
