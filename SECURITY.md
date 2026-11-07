@@ -1,5 +1,11 @@
 # Security Audit
 
+> **Scope note.** This audit describes a **prototype**, not a hardened
+> production system. The properties below are what the code actually does
+> today, measured rather than assumed. They are a reasonable baseline for a
+> local demo and are not a claim that the application is safe to expose to
+> untrusted networks or real data.
+
 This document audits the security behaviour of the FastAPI backend in `main.py`,
 its database access, authentication, authorisation, the optional LLM call, and
 what CI enforces. It reflects the code as reviewed on this branch. Every claim

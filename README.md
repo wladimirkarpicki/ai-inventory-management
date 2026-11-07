@@ -1,5 +1,10 @@
 # Inventory Management System
 
+> **Prototype, not a finished product.** This project is a working demo that
+> exercises a full inventory stack end to end. It has not been hardened or
+> reviewed for production use. Do not put real business data or secrets into
+> an instance reachable by anyone else.
+
 [![Tests](https://github.com/wladimirkarpicki/ai-inventory-management/actions/workflows/tests.yml/badge.svg)](https://github.com/wladimirkarpicki/ai-inventory-management/actions/workflows/tests.yml)
 [![Security](https://github.com/wladimirkarpicki/ai-inventory-management/actions/workflows/security.yml/badge.svg)](https://github.com/wladimirkarpicki/ai-inventory-management/actions/workflows/security.yml)
 
@@ -219,3 +224,7 @@ pre-commit install
 - `scripts/` — backup, health monitor, demo-data seeders
 - `docs/` — [CI.md](docs/CI.md) (pipeline overview), [OPERATIONS.md](docs/OPERATIONS.md) (runbook)
 - `.github/workflows/` — Tests and Security CI pipelines
+
+## License
+
+MIT, see [LICENSE](LICENSE).
