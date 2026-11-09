@@ -30,6 +30,31 @@ assumed. The feature list itself lives in the README and is not repeated here.
   (`SELECT id, username, role FROM users WHERE id = %s`). If the row is gone it
   raises `401 "Account no longer exists."`. So when an admin deletes an account,
   its outstanding tokens stop working on the very next request.
+- **Malformed subject claims are rejected, not crashed.** `sub` is
+  attacker-controlled once a token is signed, so a token carrying
+  `sub = "not-a-number"` used to raise an unhandled `ValueError` and surface as
+  **HTTP 500**. The conversion is now wrapped and returns
+  `401 "Invalid or expired token."`, matching every other invalid credential.
+  Two regression tests forge a malformed and a missing subject and assert 401.
+- **State transitions are single conditional statements.** `receive_order` and
+  `cancel_order` previously read an order's status and then updated stock and
+  the status in separate statements. Two concurrent receives of the same order
+  both passed the same check and both added the quantity, double-counting
+  stock. Both endpoints now transition with
+  `UPDATE ... WHERE id = %s AND status = 'ordered' RETURNING`, and stock is
+  only touched when that UPDATE returns a row; the loser gets `409 Conflict`
+  and rolls back. The whole receive path (stock, movement, status) is still one
+  transaction.
+- **First-run setup is a race, not a guessing problem.** `POST /api/auth/setup`
+  creates the initial admin while no user exists, and it will do so for
+  *anyone* who reaches it with any password of 8+ characters. Rate limiting was
+  considered and rejected here: it cannot work, because the login limiter only
+  trips when a failed attempt is registered and setup registers none, and it
+  would not close the real risk anyway. The endpoint accepts any password, so
+  an attacker does not brute-force anything, they simply POST their own and win
+  a race with the legitimate operator. The control is operational: run setup
+  promptly on an instance reachable by anyone else, and add a setup token if a
+  shared deployment ever needs one.
 - **Login rate limiting.** Failed sign-ins are counted per username in an
   in-process map. `LOGIN_MAX_ATTEMPTS = 5` failures for one username lock that
   username for `LOGIN_LOCKOUT_SECONDS = 15 * 60` (15 minutes); a locked login
@@ -77,8 +102,9 @@ assumed. The feature list itself lives in the README and is not repeated here.
   and reset schemas, and an explicit check in `setup`).
 - The hashing method is not named in `main.py`; it relies on the Werkzeug default
   for the pinned version (`Werkzeug>=3.1.9`). The README describes the stored
-  hash as bcrypt; confirm the concrete algorithm against the installed Werkzeug
-  before quoting "bcrypt" as fact.
+  hash as bcrypt, while the README now states salted Werkzeug hashes
+  (`generate_password_hash`), which is what `main.py` uses. Treat the Werkzeug
+  wording as correct and this note as resolved.
 
 ## Input handling
 
@@ -109,16 +135,17 @@ assumed. The feature list itself lives in the README and is not repeated here.
   with `allow_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]`,
   `allow_credentials=True`, `allow_methods=["*"]`, `allow_headers=["*"]`. The
   code comment notes these origins must be extended for production deployments.
-- **Discrepancy (highest priority).** The README states that every response
-  carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
-  `Referrer-Policy: no-referrer`, and a Content-Security-Policy of
-  `default-src 'self'; style-src 'self' 'unsafe-inline'`. Those header names and
-  values do **not** appear anywhere in the application code on this branch. A
-  repo-wide search finds them only in `README.md`; there is no middleware that
-  sets them (`main.py` registers only CORS). As reviewed, the application does
-  **not** emit these headers, so the README's claim is not backed by the code.
-  Either add the headers middleware or correct the README before relying on them.
-  Do not treat the CSP as enforced until that is resolved.
+- **Security headers are implemented.** The regression found in the previous
+  audit (README claimed them, code did not set them) is closed: the middleware at
+  `main.py` (~105-134) is registered before the routers, so it is the outermost
+  layer and touches API responses, the SPA shell and the in-app error pages
+  alike. Every response carries `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and a
+  `Content-Security-Policy`. The CSP is sufficient for the built SPA: the
+  production `dist/index.html` loads only same-origin `/assets/*` scripts and
+  stylesheets. Remaining hardening, not yet done: `object-src 'none'`,
+  `upgrade-insecure-requests`, `Cross-Origin-Opener-Policy`,
+  `Cross-Origin-Resource-Policy` and `Permissions-Policy`.
 
 ## Secrets handling
 
@@ -152,7 +179,12 @@ pull requests to `main` and on a weekly schedule (Mondays at 02:00 UTC):
   f-strings only interpolate compile-time constants (column names, static
   `WHERE` clauses), never user input. The SARIF report is uploaded into the
   GitHub Security tab.
-- **pip-audit (SCA)**: non-blocking (`continue-on-error`). It audits the declared
+- **pip-audit (SCA)**: blocking. It audits the declared dependency tree
+  (`requirements.txt`) against the OSV database and fails the build on a new
+  vulnerability; the report is uploaded as the `pip-audit-report` JSON artifact.
+  Dev dependencies are not audited here, and the earlier claim that this step was
+  non-blocking via `continue-on-error` is stale: that flag was removed when the
+  job became a real gate.
   dependency tree, `requirements.txt`, against the OSV database, rather than the
   runner environment, and uploads a JSON report. Findings do not fail the
   pipeline; Dependabot opens upgrade PRs.
@@ -214,25 +246,42 @@ top of it.
 - **Single symmetric key, no rotation.** JWTs use one `SECRET_KEY` with HS256.
   Rotating the key invalidates all outstanding tokens; there is no key-version or
   rotation mechanism.
-- **Password algorithm is not pinned in code.** It uses the Werkzeug default for
-  the pinned version; the README's "bcrypt" wording should be confirmed against
-  the installed Werkzeug before being repeated.
+- **Password algorithm.** It uses Werkzeug's `generate_password_hash` default for
+  the pinned Werkzeug version, so it is a salted Werkzeug hash and not bcrypt.
+  The README was corrected to say exactly that, and the earlier "bcrypt"
+  wording in this document is now stale and should not be repeated.
 - **CORS is configured for the two Vite dev origins** with `allow_credentials`
   and wildcard methods/headers. Any other deployment origin must be added to
   `allow_origins` before it is used, or the browser blocks cross-origin calls.
-- **LLM egress is real when enabled.** Product names and quantities are sent to
-  an external provider. It is off by default (no key) and degrades to regression
-  on any failure, but the data leaves the machine when the key is set.
 - **`/metrics` and the auth bootstrap endpoints are unauthenticated.**
   `/api/health`, `/api/ready`, `/metrics`, `/api/auth/status`,
   `/api/auth/login` and `/api/auth/setup` carry no auth. `/metrics` is served on
   the published host port 8000 as well as the internal network, so restrict or
   firewall it if the host is exposed. `setup` only works while no user exists.
+- **Schema drift was a real defect, now fixed.** `schema.sql` and the migration
+  files described different schemas: a fresh volume created from `schema.sql`
+  silently lost both `stock_movements` indexes that `migrations/001` defines,
+  so the analytics queries that filter and ORDER BY on `timestamp` would
+  degrade to sequential scans. `schema.sql` also declared `min_quantity`'s CHECK
+  inline (unnamed) while migration 005 names it, so the two sources could not
+  produce the same schema. Both are aligned and two tests assert the alignment
+  holds, so a fresh volume and a migrated database now match.
+- **Migrations are manual.** There is no migration tool and no version table;
+  the files in `migrations/` are applied by hand in numeric order, and only
+  `schema.sql` is applied automatically, on a fresh volume's first init. A
+  migration applied out of order or skipped is not detected by anything.
+- **Branch protection is on.** `main` requires the ten CI status checks with
+  strict mode, one approving review, resolved conversations, and blocks force
+  pushes and deletions. `enforce_admins` is off, so an emergency direct push
+  remains possible while the checks still run and report.
 - **No TLS in the app container.** The image runs plain HTTP on port 8000; the
   application does not terminate TLS. Put a TLS reverse proxy in front for any
   non-local deployment.
-- **Configuration drift to reconcile.** `.env.template` lists
-  `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` for `/api/forecast`, while the code
-  reads `NVIDIA_API_KEY` / `NVIDIA_MODEL` and `compose.yml` passes the NVIDIA
-  variables. The OpenRouter lines do not match the implementation; treat that
-  part of `.env.template` as stale until it is reconciled.
+- **LLM configuration.** The forecast refinement talks to the NVIDIA Build
+  API. The code reads `NVIDIA_API_KEY` / `NVIDIA_MODEL` and `compose.yml`
+  passes those same names (default model `openai/gpt-oss-20b`). The earlier
+  OPENROUTER references in this document were stale: the OpenRouter path is
+  gone from the templates and the code. Refinement sends product names,
+  quantities and derived rates to an external provider when a key is set, so
+  it is off by default (no key, regression only) and degrades to the
+  regression path on any failure.
