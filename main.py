@@ -240,7 +240,12 @@ def get_current_user(
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token.")
 
-    user_id = int(payload.get("sub", 0))
+    # `sub` is attacker-controlled once a token is signed, so a malformed
+    # value must fail the request as 401 rather than escape as a 500.
+    try:
+        user_id = int(payload.get("sub", 0))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid or expired token.")
 
     row = db.execute(
         "SELECT id, username, role FROM users WHERE id = %s",
@@ -308,6 +313,15 @@ def auth_status(db: psycopg.Connection = Depends(get_db)) -> dict:
 def setup(data: SetupIn, db: psycopg.Connection = Depends(get_db)) -> dict:
     """
     Create the initial admin. Only available while no user exists.
+
+    Note on protection: this endpoint cannot be rate limited in a way
+    that helps. It accepts any password, so an attacker does not guess
+    anything, they simply post their own password and win a race with
+    the legitimate operator. Limiting attempts would only slow that race
+    without closing it. The real controls are operational, and they are
+    recorded as an accepted limitation in SECURITY.md: run setup promptly
+    on a reachable-from-outside instance, and prefer a setup token if one
+    is ever added.
     """
 
     if _user_count(db) > 0:
@@ -1645,6 +1659,13 @@ def receive_order(
     matching 'purchase_order' movement is recorded in the same
     transaction, so Recent movements, Dynamics and the forecast all
     update together (P8/P11 integration).
+
+    The status flip is a single conditional UPDATE and the stock is only
+    touched when that UPDATE actually returned a row. Reading the status
+    first and then writing both statements let two concurrent receives of
+    the same order pass the same check and double-count the stock. The
+    row lock held by the UPDATE serialises them, so the second caller now
+    gets a 409 instead.
     """
 
     order = db.execute(
@@ -1658,15 +1679,24 @@ def receive_order(
             detail=f"Order is {order[2]!r}, not open for receiving.",
         )
 
+    flipped = db.execute(
+        "UPDATE orders SET status = 'received', received_at = now() "
+        "WHERE id = %s AND status = 'ordered' RETURNING product_id, qty",
+        (order_id,),
+    ).fetchone()
+
+    if flipped is None:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Order was already received by another request.",
+        )
+
     db.execute(
         "UPDATE products SET quantity = COALESCE(quantity, 0) + %s WHERE id = %s",
-        (order[1], order[0]),
+        (flipped[1], flipped[0]),
     )
-    _record_stock_movement(db, order[0], order[1], "purchase_order")
-    db.execute(
-        "UPDATE orders SET status = 'received', received_at = now() WHERE id = %s",
-        (order_id,),
-    )
+    _record_stock_movement(db, flipped[0], flipped[1], "purchase_order")
     db.commit()
     _invalidate_forecast_cache()
 
@@ -1679,7 +1709,12 @@ def cancel_order(
     user: dict = Depends(get_current_user),
     db: psycopg.Connection = Depends(get_db),
 ) -> dict:
-    """Cancel an open order. Received orders are final."""
+    """
+    Cancel an open order. Received orders are final.
+
+    Like receive_order, the transition is a single conditional UPDATE so
+    two concurrent cancels cannot both act on the same open order.
+    """
 
     order = db.execute("SELECT status FROM orders WHERE id = %s", (order_id,)).fetchone()
     if order is None:
@@ -1690,7 +1725,18 @@ def cancel_order(
             detail=f"Order is {order[0]!r}, only open orders can be cancelled.",
         )
 
-    db.execute("UPDATE orders SET status = 'cancelled' WHERE id = %s", (order_id,))
+    flipped = db.execute(
+        "UPDATE orders SET status = 'cancelled' WHERE id = %s AND status = 'ordered' RETURNING id",
+        (order_id,),
+    ).fetchone()
+
+    if flipped is None:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Order was already cancelled or received by another request.",
+        )
+
     db.commit()
 
     return {"ok": True}
