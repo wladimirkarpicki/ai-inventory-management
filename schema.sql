@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS products (
     quantity INTEGER,
     reorder_point INTEGER NOT NULL DEFAULT 10,
     lead_time_days INTEGER NOT NULL DEFAULT 7,
-    min_quantity INTEGER NOT NULL DEFAULT 5 CHECK (min_quantity >= 0)
+    min_quantity INTEGER NOT NULL DEFAULT 5,
+    CONSTRAINT products_min_quantity_non_negative CHECK (min_quantity >= 0)
 );
 
 -- Per-product minimum stock level (default 5). The inventory-health
@@ -46,6 +47,17 @@ CREATE TABLE IF NOT EXISTS stock_movements (
     reason TEXT NOT NULL DEFAULT '',
     timestamp TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
+
+-- Movement history indexes. Both are required: /api/movements filters by
+-- product_id, and /api/movements/daily plus /api/movements/top filter and
+-- ORDER BY on timestamp, so without these the analytics queries run
+-- sequential scans. These match migrations/001_stock_movements.sql exactly
+-- so a fresh volume and a migrated database end up with the same schema.
+CREATE INDEX IF NOT EXISTS idx_stock_movements_product_id
+    ON stock_movements (product_id);
+
+CREATE INDEX IF NOT EXISTS idx_stock_movements_timestamp
+    ON stock_movements (timestamp DESC);
 
 -- Purchase orders (P25): ordered -> received | cancelled.
 CREATE TABLE IF NOT EXISTS orders (
