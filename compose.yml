@@ -56,7 +56,7 @@ services:
       DATABASE_NAME: ${DATABASE_NAME:-inventory}
       DATABASE_USER: ${DATABASE_USER:-postgres}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
-      SECRET_KEY: ${SECRET_KEY:?Copy .env.example to .env and set SECRET_KEY}
+      SECRET_KEY: ${SECRET_KEY:?Copy .env.template to .env and set SECRET_KEY}
       NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
       NVIDIA_MODEL: ${NVIDIA_MODEL:-openai/gpt-oss-20b}
     ports:

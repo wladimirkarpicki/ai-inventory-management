@@ -1373,7 +1373,14 @@ NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 # badge from silently disappearing. The refine runs once per forecast-cache
 # window (10 min), so the cost is one slow request per window; every other
 # forecast call is a cache hit.
-LLM_TIMEOUT = 240
+#
+# Overridable per deployment through LLM_TIMEOUT in .env (listed in
+# .env.template). An unparsable value falls back to the default instead of
+# failing startup: a typo in an optional tuning knob must not take the API down.
+try:
+    LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT") or 240)
+except ValueError:  # an unparsable value keeps the default, never a crash
+    LLM_TIMEOUT = 240
 LLM_GRACE_SECONDS = 5  # daemon-thread join bound = LLM_TIMEOUT + grace (F1 guard)
 LLM_COOLDOWN_SECONDS = 5 * 60
 

@@ -18,6 +18,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Pull the connection settings out of .env so the documented command works on
+# a clean clone. A .env alone used to be useless here: the file was never
+# sourced, so DATABASE_PASSWORD had to be exported by hand while the error
+# message suggested a .env would do.
+if [ -f "$ROOT/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$ROOT/.env"
+  set +a
+fi
+
 DEV_IMAGE="ai-inventory-management-dev"
 
 if ! docker image inspect "$DEV_IMAGE" >/dev/null 2>&1; then
@@ -27,12 +38,15 @@ fi
 
 # DATABASE_HOST=db is the compose service name. DATABASE_PORT is left unset
 # so the connection string uses the container default of 5432.
+# DATABASE_NAME defaults to "inventory", which is what compose.yml and the
+# README use; the old default was "ecommerce", which matches neither.
 exec docker run --rm -it \
   --network "${COMPOSE_PROJECT_NAME:-ai-inventory-management}_backend" \
   -v "$ROOT:/app" -w /app \
   -e DATABASE_HOST=db \
-  -e DATABASE_NAME="${DATABASE_NAME:-ecommerce}" \
+  -e DATABASE_NAME="${DATABASE_NAME:-inventory}" \
   -e DATABASE_USER="${DATABASE_USER:-postgres}" \
-  -e DATABASE_PASSWORD="${DATABASE_PASSWORD:?set DATABASE_PASSWORD or create a .env}" \
+  -e DATABASE_PASSWORD="${DATABASE_PASSWORD:?DATABASE_PASSWORD is not set: add it to .env or export it}" \
   -e SECRET_KEY="${SECRET_KEY:-}" \
+  -e LLM_TIMEOUT="${LLM_TIMEOUT:-}" \
   "$DEV_IMAGE" "$@"
