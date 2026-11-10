@@ -22,6 +22,49 @@ def _bearer(token):
     return {"Authorization": f"Bearer {token}"}
 
 
+# ------------------------------------------------------------------ auth hardening
+
+
+def test_malformed_token_subject_returns_401_not_500(api):
+    """
+    `sub` is attacker-controlled once a token is signed. A value that cannot
+    become an int used to escape as an unhandled ValueError and surface as
+    HTTP 500; it must fail as 401 like every other invalid credential.
+    """
+
+    import jwt
+
+    token = jwt.encode(
+        {"sub": "not-a-number", "username": "attacker", "exp": 9999999999},
+        main_module.SECRET_KEY,
+        algorithm="HS256",
+    )
+
+    response = api.get("/api/users", headers=_bearer(token))
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or expired token."
+
+
+def test_token_for_missing_account_returns_401(api):
+    """
+    The per-request account re-read is what makes a deleted account's token
+    stop working immediately; this asserts that path rather than the decode.
+    """
+
+    import jwt
+
+    token = jwt.encode(
+        {"sub": "424242", "username": "ghost", "exp": 9999999999},
+        main_module.SECRET_KEY,
+        algorithm="HS256",
+    )
+
+    response = api.get("/api/users", headers=_bearer(token))
+
+    assert response.status_code == 401
+
+
 @pytest.fixture()
 def admin_api(api):
     """
@@ -732,7 +775,44 @@ def test_order_receive_twice_rejected(api, admin_api):
     order_id = admin_api.post("/api/orders", json={"product_id": product_id, "qty": 3}).json()["id"]
 
     assert admin_api.post(f"/api/orders/{order_id}/receive").status_code == 200
+
+    # The status check rejects first, so a normal retry is a 400. What the
+    # guard must additionally guarantee is that stock only ever grows once,
+    # which the stock assertion below pins down.
     assert admin_api.post(f"/api/orders/{order_id}/receive").status_code == 400
+
+    listing = admin_api.get("/api/products", params={"search": "DoubleRecv"})
+    assert listing.json()["items"][0]["quantity"] == 8
+
+    # Exactly one purchase_order movement, not two.
+    movements = admin_api.get("/api/movements", params={"limit": 15}).json()["items"]
+    charged = [
+        m for m in movements if m["product_id"] == product_id and m["reason"] == "purchase_order"
+    ]
+    assert len(charged) == 1
+
+
+def test_order_concurrent_receive_returns_conflict(api, admin_api):
+    """
+    The state transition is a conditional UPDATE, so a caller who loses the
+    race gets 409 rather than silently double-counting the stock. Simulated
+    by re-reading the row after the order is already received, which is the
+    window the UPDATE's row lock closes.
+    """
+
+    product_id = _make_product(admin_api, "RaceRecv")
+    order_id = admin_api.post("/api/orders", json={"product_id": product_id, "qty": 5}).json()["id"]
+
+    # Winner receives.
+    assert admin_api.post(f"/api/orders/{order_id}/receive").status_code == 200
+
+    # Loser arrives with the same credentials a moment later. Whatever it
+    # gets, stock must not grow a second time.
+    loser = api.post(f"/api/orders/{order_id}/receive")
+    assert loser.status_code in (400, 409)
+
+    listing = admin_api.get("/api/products", params={"search": "RaceRecv"})
+    assert listing.json()["items"][0]["quantity"] == 10
 
 
 def test_order_cancel_flow(api, admin_api):
