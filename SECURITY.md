@@ -185,9 +185,6 @@ pull requests to `main` and on a weekly schedule (Mondays at 02:00 UTC):
   Dev dependencies are not audited here, and the earlier claim that this step was
   non-blocking via `continue-on-error` is stale: that flag was removed when the
   job became a real gate.
-  dependency tree, `requirements.txt`, against the OSV database, rather than the
-  runner environment, and uploads a JSON report. Findings do not fail the
-  pipeline; Dependabot opens upgrade PRs.
 - **There is no CodeQL analysis.** The workflow uses
   `github/codeql-action/upload-sarif` only to publish Bandit's SARIF into the
   Security tab. It does not run `codeql-action/init` or `analyze` on any
