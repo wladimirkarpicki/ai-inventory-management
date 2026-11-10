@@ -204,9 +204,9 @@ same Ruff rules run locally through `pre-commit`.
 Forecasts are linear regression. NVIDIA Build is an optional refinement step on
 top of it.
 
-- **What leaves the machine.** When `NVIDIA_API_KEY` is set, the forecast
-  endpoint sends only the **current page** of forecasts (the most urgent slice),
-  never the full catalog, to
+- **What leaves the machine.** When `NVIDIA_API_KEY` is set, the forecast and
+  the recommendations endpoints send only the **current page** (the most urgent
+  slice), never the full catalog, to
   `https://integrate.api.nvidia.com/v1/chat/completions` (OpenAI-compatible wire
   format). Each item carries `product_id`, `name`, `current_qty`,
   `days_until_stockout` and `recommended_restock_qty`. Requests send
@@ -223,19 +223,29 @@ top of it.
 - **Circuit breaker.** A `429` response sets an in-process cooldown of
   `LLM_COOLDOWN_SECONDS = 5 * 60` (5 minutes) during which the LLM step is
   skipped entirely, to avoid a retry storm against the provider.
-- **The forecast never depends on the LLM.** Every failure keeps the regression
+- **Neither endpoint depends on the LLM.** Every failure keeps the regression
   values (fallback): no key set (skip with a log line), cooldown active, timeout,
   a response that is not a JSON array, an HTTP error, or any other exception.
   Only matched rows are marked `ai_refined=true`, and only the values that came
-  back are applied. The refinement runs once per forecast-cache window
-  (10-minute TTL), so it is not per-request.
+  back are applied.
+- **One call per window, shared by both tabs.** The refinement runs at most
+  once per forecast-cache window (10-minute TTL), so it is not per-request. The
+  first endpoint to refine in a window stores the result per product; every
+  later call in that window replays it, which is what keeps the forecast and the
+  recommendations tabs from disagreeing about the same product's numbers or
+  badge. A product write drops the cached list and the stored refinements
+  together, so refined values never outlive the data they refine.
 
 ## Known and accepted limitations (observed)
 
-- **Security headers are documented but not implemented.** See the Security
-  headers section. The README claims `X-Content-Type-Options`, `X-Frame-Options`,
-  `Referrer-Policy` and a CSP, but no code sets them. This is the highest
-  priority item to resolve.
+- **Security headers are implemented.** The middleware at `main.py` (~105-134)
+  is registered before the routers, so it is the outermost layer and sets
+  `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and the CSP on
+  every response. Remaining hardening, not yet done: `object-src 'none'`,
+  `upgrade-insecure-requests`, `Cross-Origin-Opener-Policy`,
+  `Cross-Origin-Resource-Policy` and `Permissions-Policy`. An earlier revision of
+  this document called them unimplemented; that was fixed in the docs alignment
+  pass and this stale copy is removed with it.
 - **Login lockout is per-process and in-memory.** It limits online guessing on a
   single instance, but it resets when the process restarts and is not shared
   across multiple app replicas. Scaling past one replica weakens it.

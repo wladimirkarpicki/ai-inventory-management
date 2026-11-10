@@ -30,7 +30,7 @@ A web-based inventory management application built with Python, FastAPI, Postgre
 
 ### Smart forecasting & recommendations
 - **Linear-regression demand forecast** per product over a 30-day window — days until stockout and recommended restock quantity
-- **AI refinement** (optional): rows refined by an LLM carry an `AI` badge; every failure falls back to the regression values, so the forecast never depends on the LLM being up
+- **AI refinement** (optional): rows refined by an LLM carry an `AI` badge on both the Forecast and the Recommendations tabs, one shared refinement per cache window keeps the same product's numbers identical across them, and every failure falls back to the regression values, so neither view depends on the LLM being up
 - Restock formula accounts for each product's lead time: `needed = daily sales rate × lead_time × 1.1` — with the reorder point as a floor
 - **Recommendations** list the most urgent restock candidates — flagged with **open purchase orders** so the same item isn't ordered twice
 - **Forecast cache** (10-minute TTL) — recomputes only on expiry or on any product write
@@ -191,7 +191,7 @@ pip install -r requirements-dev.txt
 
 The suite runs inside the compose network so it uses the stack database. The `DATABASE_NAME` in `.env` is never touched: the suite creates its own throwaway database, applies `schema.sql` plus the migrations to it, and drops it at the end.
 
-It covers authentication and the first-run setup flow, user management with all of its safety rules, product and brand CRUD with validation and uniqueness, search (including LIKE-wildcard escaping), sorting, pagination, the low-stock filter, CSV export and import, the dashboard statistics, movement analytics (daily aggregates, top movers, forecasts with cache/LLM fallback), purchase orders (create, list, receive, cancel, transitions), and the health/readiness/metrics endpoints. Every test starts from a clean database, so tests can run in any order.
+It covers authentication and the first-run setup flow, user management with all of its safety rules, product and brand CRUD with validation and uniqueness, search (including LIKE-wildcard escaping), sorting, pagination, the low-stock filter, CSV export and import, the dashboard statistics, movement analytics (daily aggregates, top movers, forecasts with cache/LLM fallback, and the forecast/recommendations parity of the shared LLM window), purchase orders (create, list, receive, cancel, transitions), and the health/readiness/metrics endpoints. Every test starts from a clean database, so tests can run in any order.
 
 ```bash
 python -m pytest --cov=. --cov-report=term     # coverage report (~90%)
