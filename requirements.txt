@@ -1,4 +1,4 @@
-psycopg==3.3.6
+psycopg==3.3.8
 python-dotenv
 fastapi>=0.162.0
 python-multipart>=0.0.33
