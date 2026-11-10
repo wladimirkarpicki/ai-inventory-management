@@ -255,6 +255,45 @@ def test_min_quantity_check_constraint_rejects_negative(db_connection):
         db_connection.commit()
 
 
+def test_schema_sql_creates_the_indexes_migrations_define(db_connection):
+    """
+    schema.sql and migrations/ must describe the same schema, otherwise a
+    fresh volume silently loses whatever only a migration adds.
+
+    Both stock_movements indexes live in migrations/001_stock_movements.sql;
+    the analytics endpoints filter and ORDER BY on timestamp, so a fresh
+    volume without them degrades to sequential scans with nothing
+    complaining about it.
+    """
+
+    with db_connection.cursor() as cur:
+        cur.execute("SELECT indexname FROM pg_indexes WHERE tablename = 'stock_movements'")
+        indexes = {row[0] for row in cur.fetchall()}
+
+    assert "idx_stock_movements_product_id" in indexes
+    assert "idx_stock_movements_timestamp" in indexes
+
+
+def test_schema_sql_uses_the_named_min_quantity_constraint(db_connection):
+    """
+    The CHECK must be named, matching migrations/005. An unnamed inline
+    CHECK lets ALTER TABLE ADD CONSTRAINT collide differently on a database
+    built from schema.sql than on a migrated one, so the two schemas
+    cannot be reproduced from a single source.
+    """
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "SELECT conname FROM pg_constraint "
+            "WHERE conrelid = 'products'::regclass "
+            "AND contype = 'c' "
+            "AND conname IS NOT NULL"
+        )
+        names = {row[0] for row in cur.fetchall()}
+
+    assert "products_min_quantity_non_negative" in names
+
+
 def test_migration_005_backfills_existing_rows_with_the_default(db_connection):
     """
     Requirement: existing products receive the default value.
