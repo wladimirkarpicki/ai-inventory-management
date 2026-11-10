@@ -10,7 +10,7 @@ Runs on **every push** (all branches) and every pull request.
 
 | Job | What it does |
 |-----|--------------|
-| `pytest` | Boots a throwaway `postgres:16` service container, installs runtime + dev dependencies, runs `pytest --cov` (all 158 tests, coverage reported per run) and uploads `coverage.xml` as the `coverage-report` artifact. |
+| `pytest` | Boots a throwaway `postgres:16` service container, installs runtime + dev dependencies, runs `pytest --cov` (all 161 tests, coverage reported per run) and uploads `coverage.xml` as the `coverage-report` artifact. |
 | `frontend` | `pnpm install --frozen-lockfile`, TypeScript check (`tsc -b`), unit tests (`vitest run`), production build (`vite build`). |
 | `docker` | Builds the production image (`docker build .`) and validates `compose.yml` (`docker compose config`). |
 

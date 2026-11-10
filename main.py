@@ -85,6 +85,10 @@ _forecast_cache: dict = {"ts": 0.0, "forecasts": [], "total": 0}
 def _invalidate_forecast_cache() -> None:
     global _forecast_cache
     _forecast_cache = {"ts": 0.0, "forecasts": [], "total": 0}
+    # Refined values belong to the data that produced them: a product write
+    # drops them together with the cached list.
+    _llm_state["refined"] = {}
+    _llm_state["refined_ts"] = 0.0
 
 
 app = FastAPI(title="Inventory Management API")
@@ -1387,7 +1391,12 @@ LLM_COOLDOWN_SECONDS = 5 * 60
 # Circuit breaker (P13): after a 429 the refine step sleeps for the cooldown
 # window and every forecast served meanwhile is pure regression — no retry
 # storm against the provider. In-process state, reset by tests.
-_llm_state: dict = {"cooldown_until": 0.0}
+# In-process LLM state, reset by tests. "refined" holds the current window's
+# successful refinements per product; the forecast and the recommendations
+# endpoints share it, so the two dashboard tabs cannot disagree about the same
+# product. "refined_ts" is the monotonic time of the last network call and
+# bounds the shared window (at most one call per forecast-cache window).
+_llm_state: dict = {"cooldown_until": 0.0, "refined": {}, "refined_ts": 0.0}
 
 
 def _linreg_slope(xs: list, ys: list) -> float:
@@ -1832,6 +1841,27 @@ def _fetch_llm_refinement(api_key: str, body: str) -> str:
     return result.get("choices", [{}])[0].get("message", {}).get("content") or ""
 
 
+def _apply_stored_refinements(rows: list) -> None:
+    """
+    Replay this window's stored LLM values onto rows.
+
+    The forecast and the recommendations endpoints share one store, so a
+    product refined on one tab is shown refined on the other: the two
+    dashboards never disagree about the same product's numbers.
+    """
+
+    stored = _llm_state["refined"]
+    if not stored:
+        return
+    for row in rows:
+        item = stored.get(row["product_id"])
+        if item is None:
+            continue
+        row["days_until_stockout"] = item["days_until_stockout"]
+        row["recommended_restock_qty"] = item["recommended_restock_qty"]
+        row["ai_refined"] = True
+
+
 def _refine_forecasts_with_llm(forecasts: list) -> None:
     """
     Best-effort LLM refinement (NVIDIA Build, default openai/gpt-oss-20b).
@@ -1839,6 +1869,10 @@ def _refine_forecasts_with_llm(forecasts: list) -> None:
     catalog. No key → skip with a log line; any failure — rate limit,
     stall, garbage response — keeps the regression numbers (fallback),
     so the forecast endpoint never depends on the LLM being up.
+
+    At most one network call per forecast-cache window, shared with
+    /api/recommendations: the first call of a window populates
+    _llm_state["refined"], every later call in that window replays it.
     """
 
     if not forecasts:
@@ -1852,6 +1886,17 @@ def _refine_forecasts_with_llm(forecasts: list) -> None:
     # P13: inside the 429 cooldown window skip the LLM entirely.
     if time.monotonic() < _llm_state["cooldown_until"]:
         print("llm: cooldown active after 429, skipping refine — regression fallback")
+        return
+
+    # Shared window: the first endpoint to refine in a window makes the
+    # network call; every other call inside the window replays the stored
+    # values, so the LLM cost stays one call per forecast-cache window no
+    # matter how often either dashboard tab is opened.
+    if _llm_state["refined"] and (
+        time.monotonic() - _llm_state["refined_ts"] < FORECAST_CACHE_TTL_SECONDS
+    ):
+        _apply_stored_refinements(forecasts)
+        print("llm: window hit, replaying stored refinement — no new call")
         return
 
     model = os.getenv("NVIDIA_MODEL") or "openai/gpt-oss-20b"
@@ -1934,6 +1979,15 @@ def _refine_forecasts_with_llm(forecasts: list) -> None:
                 f["recommended_restock_qty"] = item["recommended_restock_qty"]
             f["ai_refined"] = True
             matched += 1
+        # Share the result: the other dashboard tab replays these values
+        # instead of calling the LLM again with possibly different answers.
+        for f in forecasts:
+            if f.get("ai_refined"):
+                _llm_state["refined"][f["product_id"]] = {
+                    "days_until_stockout": f["days_until_stockout"],
+                    "recommended_restock_qty": f["recommended_restock_qty"],
+                }
+        _llm_state["refined_ts"] = time.monotonic()
         print(f"llm: ok, refined {matched}")
     except urllib.error.HTTPError as exc:
         if exc.code == 429:
@@ -1956,9 +2010,10 @@ def forecast(
     offset: int = Query(0, ge=0),
 ) -> dict:
     cached = _forecast_cache
-    if cached["ts"] > 0 and (time.monotonic() - cached["ts"]) < FORECAST_CACHE_TTL_SECONDS:
-        forecasts = cached["forecasts"]
-    else:
+    rebuilt = not (
+        cached["ts"] > 0 and (time.monotonic() - cached["ts"]) < FORECAST_CACHE_TTL_SECONDS
+    )
+    if rebuilt:
         rows = db.execute(
             "SELECT id, name, quantity, reorder_point, lead_time_days FROM products ORDER BY id"
         ).fetchall()
@@ -1994,14 +2049,16 @@ def forecast(
         )
         cached["forecasts"] = forecasts
         cached["ts"] = time.monotonic()
-        # Refine only on a cache miss: the page slice is part of the cached
-        # list (dicts are shared), so hits inside the TTL return the stored
-        # refinement without another LLM call.
-        page = forecasts[offset : offset + limit]
-        _refine_forecasts_with_llm(page)
-        return {"forecasts": page, "total": len(forecasts)}
 
+    forecasts = cached["forecasts"]
     page = forecasts[offset : offset + limit]
+    if rebuilt:
+        # Refine only when the list was just rebuilt: the result is shared
+        # through _llm_state, so a cache hit replays the stored refinement
+        # instead of calling the LLM again (possibly with different answers).
+        _refine_forecasts_with_llm(page)
+    else:
+        _apply_stored_refinements(page)
     return {"forecasts": page, "total": len(forecasts)}
 
 
@@ -2016,6 +2073,10 @@ def recommendations(
     Restock candidates from current quantities + recent movement trends:
     stock below LOW_STOCK_THRESHOLD, or depletion expected inside the
     lead-time window.
+
+    Rows carry `ai_refined` exactly like the forecast endpoint: both tabs
+    share one LLM refinement window (see `_refine_forecasts_with_llm`), so
+    the same product shows the same numbers with the same badge on both.
     """
     rows = db.execute(
         "SELECT id, name, quantity, reorder_point, lead_time_days FROM products ORDER BY id"
@@ -2036,26 +2097,40 @@ def recommendations(
         )
         days = res["days_until_stockout"]
         needs_restock = (qty is not None and qty < rp) or (days is not None and days < lt)
-        if needs_restock:
-            items.append(
-                {
-                    "product_id": pid,
-                    "name": name,
-                    "current_qty": qty or 0,
-                    "recommended_qty": res["recommended_restock_qty"],
-                    "estimated_days_until_empty": days,
-                    "open_order_qty": open_orders.get(pid, 0),
-                }
-            )
+        if not needs_restock:
+            continue
+        items.append(
+            {
+                "product_id": pid,
+                "name": name,
+                "current_qty": qty or 0,
+                # Forecast key names: the shared refinement store and
+                # _refine_forecasts_with_llm work on them unchanged; the
+                # response below renames them to this endpoint's contract.
+                "days_until_stockout": days,
+                "recommended_restock_qty": res["recommended_restock_qty"],
+                "ai_refined": False,
+                "open_order_qty": open_orders.get(pid, 0),
+            }
+        )
     # Most urgent first: estimated days ASC; unknown depletion last.
     items.sort(
         key=lambda x: (
-            x["estimated_days_until_empty"] is None,
-            x["estimated_days_until_empty"] or 0,
+            x["days_until_stockout"] is None,
+            x["days_until_stockout"] or 0,
             x["product_id"],
         )
     )
-    return {"recommendations": items[offset : offset + limit], "total": len(items)}
+    page = items[offset : offset + limit]
+    _refine_forecasts_with_llm(page)
+    # Response contract: estimated_days_until_empty / recommended_qty.
+    public = []
+    for item in page:
+        row = dict(item)
+        row["estimated_days_until_empty"] = row.pop("days_until_stockout")
+        row["recommended_qty"] = row.pop("recommended_restock_qty")
+        public.append(row)
+    return {"recommendations": public, "total": len(items)}
 
 
 @app.get("/api/health")
