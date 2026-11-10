@@ -17,12 +17,13 @@ network. The project name is pinned to `ai-inventory-management`.
 
 - Docker Engine with the Compose v2 plugin (the commands use `docker compose`).
 - A `.env` file in the project root. It is gitignored, so create it on each host.
-  Copy `.env.example` to `.env`; it carries exactly the variables `compose.yml`
-  reads: `SECRET_KEY`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`,
-  `DATABASE_HOST`.
+  Copy `.env.template` to `.env`: it is the single source of truth and lists
+  every variable `compose.yml`, `main.py` and `database.py` read, with which
+  ones are required. `.env.example` is only a pointer to the template and
+  deliberately lists nothing, so copy the template itself, not the example.
 
 ```bash
-cp .env.example .env
+cp .env.template .env
 python -c "import secrets; print(secrets.token_hex(32))"   # paste into SECRET_KEY
 ```
 
@@ -33,8 +34,11 @@ before `docker compose up`.
 Inside the Compose stack the application reaches the database at the service name
 `db`. `compose.yml` sets `DATABASE_HOST: db` for the `app` service, so the
 `DATABASE_HOST` value in `.env` is only used for local, non-Docker runs (where it
-should be `localhost`). A second template, `.env.template`, targets those local
-runs and also lists the optional `GRAFANA_ADMIN_PASSWORD` and the LLM keys.
+should be `localhost`). The template's default `db` matches the stack; change it
+only for host-side tools that run without Docker. The template also lists the
+optional variables for the two opt-in extras: `GRAFANA_ADMIN_PASSWORD` for the
+monitoring profile and `NVIDIA_API_KEY` / `NVIDIA_MODEL` / `LLM_TIMEOUT` for the
+AI forecast refinement.
 
 ## First run: setup and the first admin
 

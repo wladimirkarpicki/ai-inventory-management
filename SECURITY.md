@@ -155,9 +155,11 @@ assumed. The feature list itself lives in the README and is not repeated here.
   with `python -c "import secrets; print(secrets.token_hex(32))"`.
 - `.env` is gitignored, and so is `backups/`, so real values and dumps are not
   committed.
-- The committed templates are `.env.example` (the variables `compose.yml` reads)
-  and `.env.template` (which says "Copy to .env" and "NEVER commit the real .env
-  file"). `.env` itself must never be committed.
+- The committed template is `.env.template`, the single source of truth: it lists
+  every variable `main.py`, `database.py` and `compose.yml` read and says which
+  are required. `.env.example` is only a pointer to it and deliberately lists
+  nothing, so the two files cannot drift apart. `.env` itself must never be
+  committed.
 - Other secrets: `NVIDIA_API_KEY` (optional, for the LLM) and
   `GRAFANA_ADMIN_PASSWORD` (the Compose default is `admin`, so override it before
   exposing port 3000). Neither is printed by the scripts, and no secret value is
@@ -212,7 +214,8 @@ top of it.
   `openai/gpt-oss-20b` (`NVIDIA_MODEL` overrides it), with `max_tokens: 4000` and
   `temperature: 0.2`. No user credentials are sent.
 - **Timeout and stall guard.** The HTTP call uses a 240 second socket timeout
-  (`LLM_TIMEOUT`) and runs inside a daemon thread with a hard join bound of
+  (`LLM_TIMEOUT` in `.env` overrides it; an unparsable value keeps the default)
+  and runs inside a daemon thread with a hard join bound of
   `LLM_TIMEOUT + LLM_GRACE_SECONDS = 240 + 5 = 245 seconds`. This exists because
   a DNS or connect stall can hang well beyond the socket timeout, so the join
   bound keeps the request path bounded; on expiry the request returns the
