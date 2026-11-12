@@ -222,7 +222,7 @@ pre-commit install
 - `compose.yml` — app + db stack, with an opt-in `monitoring` profile (Prometheus + Grafana)
 - `monitoring/` — Prometheus scrape config and Grafana datasource provisioning
 - `scripts/` — backup, health monitor, demo-data seeders
-- `docs/` — [CI.md](docs/CI.md) (pipeline overview), [OPERATIONS.md](docs/OPERATIONS.md) (runbook)
+- `docs/` — [CI.md](docs/CI.md) (pipeline overview), [OPERATIONS.md](docs/OPERATIONS.md) (runbook), [adr/](docs/adr/README.md) (architecture decision records)
 - `.github/workflows/` — Tests and Security CI pipelines
 
 ## License
