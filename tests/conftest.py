@@ -11,6 +11,22 @@ from dotenv import load_dotenv
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+# The SPA catch-all route in main.py is registered at import time, and only
+# when frontend/dist exists. This module is imported before any test module
+# (several of them import main at module level), so the seed below must live
+# here — not in a test module — or the route registration loses the import
+# order race and the SPA-shell tests 404 on a fresh checkout. CI runs pytest
+# before any frontend build, so seed a minimal shell when none exists; a real
+# build is left untouched, and dist is gitignored, so nothing leaks.
+_FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
+
+if not (_FRONTEND_DIST / "index.html").is_file():
+    _FRONTEND_DIST.mkdir(parents=True, exist_ok=True)
+    (_FRONTEND_DIST / "index.html").write_text(
+        "<!doctype html><html><body>SPA shell</body></html>",
+        encoding="utf-8",
+    )
+
 load_dotenv(os.path.join(REPO_ROOT, ".env"))
 
 os.environ.setdefault("SECRET_KEY", secrets.token_hex(32))

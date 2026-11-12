@@ -137,15 +137,22 @@ assumed. The feature list itself lives in the README and is not repeated here.
   code comment notes these origins must be extended for production deployments.
 - **Security headers are implemented.** The regression found in the previous
   audit (README claimed them, code did not set them) is closed: the middleware at
-  `main.py` (~105-134) is registered before the routers, so it is the outermost
+  `main.py` (~105-144) is registered before the routers, so it is the outermost
   layer and touches API responses, the SPA shell and the in-app error pages
   alike. Every response carries `X-Content-Type-Options: nosniff`,
-  `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and a
-  `Content-Security-Policy`. The CSP is sufficient for the built SPA: the
+  `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
+  `Cross-Origin-Opener-Policy: same-origin`,
+  `Cross-Origin-Resource-Policy: same-origin` and
+  `Permissions-Policy: camera=(), microphone=(), geolocation=()` (the app uses
+  none of those features). The CSP is sufficient for the built SPA: the
   production `dist/index.html` loads only same-origin `/assets/*` scripts and
-  stylesheets. Remaining hardening, not yet done: `object-src 'none'`,
-  `upgrade-insecure-requests`, `Cross-Origin-Opener-Policy`,
-  `Cross-Origin-Resource-Policy` and `Permissions-Policy`.
+  stylesheets. `object-src 'none'` removes the `<object>`/plugin vector,
+  `upgrade-insecure-requests` rewrites any stray `http://` subresource to
+  `https`, and the cross-origin headers keep this origin out of other origins'
+  browsing-context groups and resource-sharing. `tests/test_security_headers.py`
+  asserts the full set on an API endpoint, the SPA shell route and error
+  responses (401, 404, 422, 405, and a 400 from a replayed order receive), so
+  a response without them is a test failure.
 
 ## Secrets handling
 
@@ -232,10 +239,6 @@ top of it.
 
 ## Known and accepted limitations (observed)
 
-- **Security headers are documented but not implemented.** See the Security
-  headers section. The README claims `X-Content-Type-Options`, `X-Frame-Options`,
-  `Referrer-Policy` and a CSP, but no code sets them. This is the highest
-  priority item to resolve.
 - **Login lockout is per-process and in-memory.** It limits online guessing on a
   single instance, but it resets when the process restarts and is not shared
   across multiple app replicas. Scaling past one replica weakens it.
