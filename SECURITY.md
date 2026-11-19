@@ -194,11 +194,15 @@ pull requests to `main` and on a weekly schedule (Mondays at 02:00 UTC):
   Dev dependencies are not audited here, and the earlier claim that this step was
   non-blocking via `continue-on-error` is stale: that flag was removed when the
   job became a real gate.
-- **There is no CodeQL analysis.** The workflow uses
-  `github/codeql-action/upload-sarif` only to publish Bandit's SARIF into the
-  Security tab. It does not run `codeql-action/init` or `analyze` on any
-  language, so the code is not analyzed by CodeQL itself. If CodeQL analysis is
-  expected, it is not configured.
+- **CodeQL analysis is active.** This repository runs CodeQL via the server-side
+  default setup for `actions`, `javascript-typescript` and `python` with the
+  default query suite. It does not appear in `.github/workflows` because default
+  setup is configured on the repository itself, not in a workflow file.
+  `Analyze (python)`, `Analyze (actions)` and `Analyze (javascript-typescript)`
+  are three of the ten checks required to merge to `main`. Separately,
+  `github/codeql-action/upload-sarif` still publishes Bandit's SARIF into the
+  Security tab; that upload is unchanged and is not itself a code-scanning
+  analysis of this code.
 
 The **Tests workflow** runs `pytest --cov` against a throwaway `postgres:16`
 service (the database in `.env` is not used), plus the frontend typecheck, unit
