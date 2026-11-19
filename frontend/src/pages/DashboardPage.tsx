@@ -105,7 +105,7 @@ function compactMoney(value: number): string {
 
 function formatDays(days: number | null | undefined): string {
   if (days === undefined || days === null || days === 9999) return "N/A"
-  if (days < 0) return "—"
+  if (days < 0) return "-"
   return `${days} d`
 }
 
@@ -149,7 +149,7 @@ function Pager({
   return (
     <div className="mt-2 flex items-center justify-end gap-2">
       <span className="text-xs text-muted-foreground tabular-nums">
-        {from}–{to} of {total.toLocaleString("en-US")}
+        {from}-{to} of {total.toLocaleString("en-US")}
       </span>
       <Button
         variant="outline"
@@ -355,7 +355,7 @@ export function DashboardPage() {
       await api(`/api/orders/${order.id}/${action}`, { method: "POST" })
       toast.success(
         action === "receive"
-          ? `Received ${order.qty} × ${order.product_name} — stock updated`
+          ? `Received ${order.qty} × ${order.product_name}, stock updated`
           : `Order for ${order.product_name} cancelled`
       )
       setOrdersVersion((v) => v + 1)
@@ -654,7 +654,7 @@ export function DashboardPage() {
                     <TableCell className="text-right rp">{f.reorder_point}</TableCell>
                     <TableCell className="text-center lt">{f.lead_time_days} d</TableCell>
                     <TableCell className="text-center ai">
-                      {f.ai_refined ? <Badge variant="secondary">AI</Badge> : "—"}
+                      {f.ai_refined ? <Badge variant="secondary">AI</Badge> : "-"}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -679,7 +679,7 @@ export function DashboardPage() {
         <div className="mt-6 p-4 bg-muted rounded">
           <p className="text-sm">
             <span className="animate-pulse h-4 w-6 rounded mr-2" />
-            Forecast unavailable — {"the forecast service could not be reached. Retry in a moment."}
+            Forecast unavailable: {"the forecast service could not be reached. Retry in a moment."}
           </p>
         </div>
       )}
@@ -702,7 +702,14 @@ export function DashboardPage() {
                 <TableBody>
                   {recommendationPage.recommendations.map((r) => (
                     <TableRow key={r.product_id}>
-                      <TableCell className="text-left product">{r.name}</TableCell>
+                      <TableCell className="text-left product">
+                        {r.name}
+                        {r.ai_refined ? (
+                          <Badge variant="secondary" className="ml-2" title="Restock quantity refined by the LLM">
+                            AI
+                          </Badge>
+                        ) : null}
+                      </TableCell>
                       <TableCell className="text-right qty">{r.current_qty.toLocaleString("en-US")}</TableCell>
                       <TableCell className="text-right restock">{r.recommended_qty.toLocaleString("en-US")}</TableCell>
                       <TableCell className="text-center days">
@@ -714,7 +721,7 @@ export function DashboardPage() {
                             {r.open_order_qty.toLocaleString("en-US")}
                           </Badge>
                         ) : (
-                          "—"
+                          "-"
                         )}
                       </TableCell>
                       <TableCell className="text-right">
@@ -742,6 +749,11 @@ export function DashboardPage() {
                   ))}
                 </TableBody>
               </Table>
+              {recommendationPage.recommendations.length > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Regression on recent stock movements; "AI" marks rows refined by the LLM
+                </p>
+              )}
               {recommendationPage.total > 0 && (
                 <Pager
                   offset={recommendationOffset}
@@ -854,7 +866,7 @@ export function DashboardPage() {
           </div>
 
           {dynamicsView === "flow" && (
-            <div className="h-[600px] w-full rounded border bg-card p-2">
+            <div className="h-[var(--chart-height)] w-full rounded border bg-card p-2">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={flowData} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -868,13 +880,13 @@ export function DashboardPage() {
                   <YAxis fontSize={11} width={40} allowDecimals={false} />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="in_qty" name="Units in" fill="#22c55e" radius={[3, 3, 0, 0]} maxBarSize={28} />
-                  <Bar dataKey="out_qty" name="Units out" fill="#ef4444" radius={[3, 3, 0, 0]} maxBarSize={28} />
+                  <Bar dataKey="in_qty" name="Units in" fill="var(--chart-in)" radius={[3, 3, 0, 0]} maxBarSize={28} />
+                  <Bar dataKey="out_qty" name="Units out" fill="var(--chart-out)" radius={[3, 3, 0, 0]} maxBarSize={28} />
                   <Line
                     type="monotone"
                     dataKey="out_avg7"
                     name="7-day avg out"
-                    stroke="#f59e0b"
+                    stroke="var(--chart-warn)"
                     strokeWidth={2}
                     dot={false}
                   />
@@ -1007,7 +1019,7 @@ export function DashboardPage() {
                           {m.in_out === "in" ? "In" : "Out"}
                         </TableCell>
                         <TableCell className="text-right qty">{formatQty(m.qty_delta)}</TableCell>
-                        <TableCell className="text-left reason">{m.reason || "—"}</TableCell>
+                        <TableCell className="text-left reason">{m.reason || "-"}</TableCell>
                         <TableCell className="text-right timestamp">
                           {formatTimestamp(m.timestamp)}
                         </TableCell>
@@ -1175,7 +1187,7 @@ export function DashboardPage() {
                                 variant="ghost"
                                 size="icon-sm"
                                 aria-label={`Receive ${o.product_name}`}
-                                title="Mark received — adds stock and records a movement"
+                                title="Mark received: adds stock and records a movement"
                                 disabled={orderBusy}
                                 onClick={() => void orderAction(o, "receive")}
                               >
@@ -1209,7 +1221,7 @@ export function DashboardPage() {
             </>
           ) : (
             <p className="text-sm text-muted-foreground">
-              No purchase orders yet — create one from the Recommendations or
+              No purchase orders yet: create one from the Recommendations or
               Low stock tab, or with the New order button.
             </p>
           )}

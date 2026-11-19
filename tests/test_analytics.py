@@ -705,6 +705,90 @@ def test_recommendations_sorted_by_urgency(api, admin_api, db_connection):
     assert tail_items == []
 
 
+def test_recommendations_refined_by_llm(api, admin_api, db_connection, monkeypatch):
+    # Parity: the recommendations tab gets the same LLM refinement as the
+    # forecast tab, and the response keeps its documented field names.
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-key")
+    _brand_id, product_id = _insert_brand_product(
+        db_connection, brand_name="RecLLM", product_name="RefinedRestock", qty=3
+    )
+    _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
+
+    def fake_urlopen(req, timeout=None):
+        content = json.dumps(
+            [
+                {"product_id": product_id, "days_until_stockout": 4, "recommended_restock_qty": 21},
+            ]
+        )
+        return _FakeLlmResponse({"choices": [{"message": {"content": content}}]})
+
+    monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
+
+    response = admin_api.get("/api/recommendations")
+
+    assert response.status_code == 200
+    r = response.json()["recommendations"][0]
+    assert r["ai_refined"] is True
+    assert r["estimated_days_until_empty"] == 4
+    assert r["recommended_qty"] == 21
+
+
+def test_recommendations_and_forecast_agree_on_refined_values(
+    api, admin_api, db_connection, monkeypatch, capsys
+):
+    # Parity, the point of the round: one LLM call serves both tabs, and the
+    # numbers and badges agree between them.
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-key")
+    _brand_id, product_id = _insert_brand_product(
+        db_connection, brand_name="Parity", product_name="Shared", qty=3
+    )
+    _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
+
+    calls: list[int] = []
+
+    def fake_urlopen(req, timeout=None):
+        calls.append(1)
+        content = json.dumps(
+            [
+                {"product_id": product_id, "days_until_stockout": 4, "recommended_restock_qty": 21},
+            ]
+        )
+        return _FakeLlmResponse({"choices": [{"message": {"content": content}}]})
+
+    monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
+
+    forecast = admin_api.get("/api/forecast").json()["forecasts"][0]
+    assert forecast["ai_refined"] is True
+    assert forecast["days_until_stockout"] == 4
+    assert forecast["recommended_restock_qty"] == 21
+
+    # Second tab: the stored refinement is replayed, no second LLM call, and
+    # the same product shows the same numbers with the same badge.
+    rec = admin_api.get("/api/recommendations").json()["recommendations"][0]
+    assert rec["ai_refined"] is True
+    assert rec["estimated_days_until_empty"] == 4
+    assert rec["recommended_qty"] == 21
+
+    assert len(calls) == 1
+    assert "llm: window hit, replaying stored refinement" in capsys.readouterr().out
+
+
+def test_recommendations_without_key_marks_nothing_refined(api, admin_api, db_connection):
+    # No key: the endpoint behaves exactly like before the parity round;
+    # regression values, ai_refined false, no LLM traffic.
+    _brand_id, product_id = _insert_brand_product(
+        db_connection, brand_name="NoKeyCo", product_name="Plain", qty=3
+    )
+    _insert_movements(db_connection, product_id, qty_per_day=-2, days=5)
+
+    response = admin_api.get("/api/recommendations")
+
+    assert response.status_code == 200
+    r = response.json()["recommendations"][0]
+    assert r["ai_refined"] is False
+    assert r["estimated_days_until_empty"] is not None  # regression value kept
+
+
 # ------------------------------------------------------------------ dashboard stats
 
 

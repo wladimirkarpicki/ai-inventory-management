@@ -69,6 +69,30 @@ const lowStockFixture = {
   total: 30,
 }
 
+const recommendationsFixture = {
+  recommendations: [
+    {
+      product_id: 1,
+      name: "Plain Restock",
+      current_qty: 3,
+      recommended_qty: 12,
+      estimated_days_until_empty: 4,
+      open_order_qty: 0,
+      ai_refined: false,
+    },
+    {
+      product_id: 2,
+      name: "Refined Restock",
+      current_qty: 8,
+      recommended_qty: 20,
+      estimated_days_until_empty: 6,
+      open_order_qty: 0,
+      ai_refined: true,
+    },
+  ],
+  total: 2,
+}
+
 function pathsCalled(): string[] {
   return apiMock.mock.calls.map(([path]) => path as string)
 }
@@ -84,7 +108,7 @@ describe("DashboardPage", () => {
         return { items: [], days: 30 }
       if (path.startsWith("/api/movements")) return { items: [], total: 0 }
       if (path.startsWith("/api/recommendations"))
-        return { recommendations: [], total: 0 }
+        return recommendationsFixture
       throw new Error("unexpected api call: " + path)
     })
   })
@@ -137,18 +161,35 @@ describe("DashboardPage", () => {
     await userEvent.click(screen.getByRole("tab", { name: /low stock/i }))
 
     // 30 items over 15-per-page: first page range, Prev disabled.
-    expect(await screen.findByText("1–15 of 30")).toBeInTheDocument()
+    expect(await screen.findByText("1-15 of 30")).toBeInTheDocument()
     const prev = screen.getByRole("button", { name: "Prev" })
     expect(prev).toBeDisabled()
 
     await userEvent.click(screen.getByRole("button", { name: "Next" }))
 
-    expect(await screen.findByText("16–30 of 30")).toBeInTheDocument()
+    expect(await screen.findByText("16-30 of 30")).toBeInTheDocument()
     expect(
       pathsCalled().some((p) => p.startsWith("/api/low-stock?limit=15&offset=15"))
     ).toBe(true)
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled()
     expect(screen.getByRole("button", { name: "Prev" })).toBeEnabled()
+  })
+
+  it("marks only LLM-refined rows on the recommendations tab", async () => {
+    render(<DashboardPage />)
+
+    await screen.findByText("Plain Widget")
+    await userEvent.click(
+      screen.getByRole("tab", { name: /recommendations/i })
+    )
+
+    expect(await screen.findByText("Plain Restock")).toBeInTheDocument()
+    const refinedRow = screen.getByText("Refined Restock").closest("tr")
+    expect(refinedRow).not.toBeNull()
+    expect(within(refinedRow!).getByText("AI")).toBeInTheDocument()
+
+    const plainRow = screen.getByText("Plain Restock").closest("tr")
+    expect(within(plainRow!).queryByText("AI")).not.toBeInTheDocument()
   })
 
   it("shows the low-stock threshold context in the panel", async () => {

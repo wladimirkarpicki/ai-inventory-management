@@ -174,6 +174,7 @@ export interface RecommendationRow {
   recommended_qty: number
   estimated_days_until_empty: number | null
   open_order_qty: number
+  ai_refined: boolean
 }
 
 export interface RecommendationPage {
