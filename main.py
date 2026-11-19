@@ -117,15 +117,24 @@ async def security_headers(
     own built SPA, so `default-src 'self'` is enough and inline styles stay
     allowed because the bundle uses a <style> block for the pre-paint theme.
     `frame-ancestors 'none'` is the modern replacement for the legacy
-    X-Frame-Options that the SPA route also relies on.
+    X-Frame-Options that the SPA route also relies on. `object-src 'none'`
+    removes the `<object>`/plugin vector, `upgrade-insecure-requests` makes
+    the browser rewrite any stray http:// subresource to https, and the
+    cross-origin and Permissions-Policy headers close the cross-window and
+    powerful-feature surfaces this app never uses.
     """
 
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
+        "object-src 'none'; "
+        "upgrade-insecure-requests; "
         "script-src 'self'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data:; "

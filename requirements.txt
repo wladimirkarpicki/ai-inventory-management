@@ -1,6 +1,6 @@
 psycopg==3.3.8
 python-dotenv
-fastapi>=0.162.0
+fastapi>=0.162.5
 python-multipart>=0.0.33
 uvicorn>=0.54.0
 PyJWT>=2.15.1
